@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}{{ "Register" if register else "Login" }}{% endblock %}
+
+{% block content %}
+<div class="login-container">
+
+    <pre class="ascii-logo">
+ ██╗   ██╗██████╗ ██╗     ██╗███╗   ██╗██╗  ██╗
+ ██║   ██║██╔══██╗██║     ██║████╗  ██║██║ ██╔╝
+ ██║   ██║██████╔╝██║     ██║██╔██╗ ██║█████╔╝
+ ██║   ██║██╔═══╝ ██║     ██║██║╚═╝██║██╔═██╗
+ ╚██████╔╝██║     ███████╗██║██║ ╚████║██║  ██╗
+  ╚═════╝ ╚═╝     ╚══════╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
+    </pre>
+
+    <p class="subtitle">Trust is a weakness</p>
+
+    {# ── Validation errors ── #}
+    {% if errors %}
+    <div class="login-errors">
+        {% for err in errors %}
+        <div class="terminal-alert terminal-alert-error">
+            <span class="alert-prefix">[ERROR]</span> {{ err }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" class="login-form" autocomplete="off">
+
+        <div class="form-group">
+            <label for="username" class="terminal-label">AGENT HANDLE &gt;</label>
+            <input
+                type="text"
+                id="username"
+                name="username"
+                class="terminal-input"
+                required
+                autofocus
+                spellcheck="false"
+                value="{{ request.form.get('username', '') }}"
+            >
+        </div>
+
+        <div class="form-group">
+            <label for="password" class="terminal-label">ACCESS CODE &gt;</label>
+            <input
+                type="password"
+                id="password"
+                name="password"
+                class="terminal-input"
+                required
+            >
+        </div>
+
+        {% if register %}
+        <div class="form-group">
+            <label for="confirm_password" class="terminal-label">CONFIRM CODE &gt;</label>
+            <input
+                type="password"
+                id="confirm_password"
+                name="confirm_password"
+                class="terminal-input"
+                required
+            >
+        </div>
+        {% endif %}
+
+        <div class="form-group form-actions">
+            <button type="submit" class="terminal-btn terminal-btn-primary">
+                {% if register %}[ REGISTER AGENT ]{% else %}[ CONNECT ]{% endif %}
+            </button>
+        </div>
+
+    </form>
+
+    <div class="login-toggle">
+        {% if register %}
+            <a href="{{ url_for('auth.login') }}" class="terminal-link">Existing agent? Login here</a>
+        {% else %}
+            <a href="{{ url_for('auth.register') }}" class="terminal-link">New agent? Register here</a>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

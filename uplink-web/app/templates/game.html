@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Active Session{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Full-viewport lock */
+    html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ══════════════════════════════════════════════════
+   CRT scanline overlay
+   ══════════════════════════════════════════════════ #}
+<div class="crt-overlay"></div>
+
+{# ══════════════════════════════════════════════════
+   HUD BAR (top)
+   ══════════════════════════════════════════════════ #}
+<header id="hud">
+
+    <div id="hud-left">
+        <span id="agent-handle" class="hud-label">AGENT: ---</span>
+        <span id="uplink-rating" class="hud-badge">Registered</span>
+    </div>
+
+    <div id="hud-center">
+        <span id="game-datetime" class="hud-clock">0000-00-00 00:00</span>
+    </div>
+
+    <div id="hud-right">
+        <button id="save-btn" class="hud-btn" title="Save Game">SAVE</button>
+        <span id="balance" class="hud-credits">0 c</span>
+        <div id="speed-controls">
+            <button class="speed-btn" data-speed="0">||</button>
+            <button class="speed-btn active" data-speed="1">1x</button>
+            <button class="speed-btn" data-speed="3">3x</button>
+            <button class="speed-btn" data-speed="8">8x</button>
+        </div>
+    </div>
+
+    {# Trace indicator — hidden until a trace begins #}
+    <div id="trace-bar" class="hidden">
+        <span class="trace-label">TRACE</span>
+        <div class="trace-progress">
+            <div id="trace-fill" class="trace-fill"></div>
+        </div>
+        <span id="trace-pct">0%</span>
+    </div>
+
+</header>
+
+{# ══════════════════════════════════════════════════
+   Quick-access buttons
+   ══════════════════════════════════════════════════ #}
+<nav id="quick-access">
+    <button id="btn-email" class="qa-btn" data-panel="email-panel">
+        Email <span id="email-badge" class="badge hidden">0</span>
+    </button>
+    <button id="btn-missions" class="qa-btn" data-panel="mission-panel">Missions</button>
+    <button id="btn-gateway" class="qa-btn" data-panel="gateway-panel">Gateway / Hardware</button>
+    <button id="btn-finance" class="qa-btn" data-panel="finance-panel">Finance</button>
+    <button id="btn-irc" class="qa-btn" data-panel="irc-panel">IRC</button>
+    <button id="btn-news" class="qa-btn" data-panel="news-panel">News</button>
+</nav>
+
+{# ══════════════════════════════════════════════════
+   MAIN AREA
+   ══════════════════════════════════════════════════ #}
+<div id="main-area">
+
+    {# World map (~60 % height) #}
+    <div id="world-map"></div>
+
+    {# Floating / draggable panels dock here #}
+    <div id="panels-container"></div>
+
+</div>
+
+{# ══════════════════════════════════════════════════
+   BOTTOM BAR
+   ══════════════════════════════════════════════════ #}
+<div id="bottom-bar">
+
+    <div id="bounce-chain">
+        <span class="bounce-label">ROUTE:</span>
+        {# Routing nodes injected dynamically #}
+    </div>
+
+    <button id="connect-btn" class="terminal-btn">[ CONNECT ]</button>
+
+    <div id="software-toolbar">
+        {# Software tool buttons injected by JS #}
+    </div>
+
+</div>
+
+{# ══════════════════════════════════════════════════
+   TASK BAR (running tasks + progress)
+   ══════════════════════════════════════════════════ #}
+<div id="task-bar">
+    {# Task entries with progress bars injected by JS #}
+</div>
+
+{# ══════════════════════════════════════════════════
+   PANELS (created dynamically by JS Panels.create())
+   ══════════════════════════════════════════════════ #}
+
+{% endblock %}
+
+{% block extra_js %}
+{# ── Socket.IO client ── #}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+
+{# ── Session bootstrap ── #}
+<script>
+    const GAME_SESSION_ID = "{{ session_id }}";
+    const USER_ID = {{ current_user.id }};
+</script>
+
+{# ── Core state & networking ── #}
+<script src="/static/js/state.js"></script>
+<script src="/static/js/socket.js"></script>
+
+{# ── UI modules ── #}
+<script src="/static/js/ui/panels.js"></script>
+<script src="/static/js/ui/hud.js"></script>
+<script src="/static/js/ui/worldmap.js"></script>
+<script src="/static/js/ui/bouncechain.js"></script>
+<script src="/static/js/ui/toolbar.js"></script>
+<script src="/static/js/ui/terminal.js"></script>
+<script src="/static/js/ui/email.js"></script>
+<script src="/static/js/ui/mission.js"></script>
+<script src="/static/js/ui/gateway.js"></script>
+<script src="/static/js/ui/finance.js"></script>
+<script src="/static/js/ui/news.js"></script>
+<script src="/static/js/ui/irc.js"></script>
+<script src="/static/js/ui/remote.js"></script>
+<script src="/static/js/ui/taskbar.js"></script>
+<script src="/static/js/ui/gameover.js"></script>
+<script src="/static/js/ui/themes.js"></script>
+<script src="/static/js/ui/cheats.js"></script>
+<script src="/static/js/ui/tutorial.js"></script>
+
+{# ── Screen modules ── #}
+<script src="/static/js/screens/menu.js"></script>
+<script src="/static/js/screens/password.js"></script>
+<script src="/static/js/screens/fileserver.js"></script>
+<script src="/static/js/screens/logscreen.js"></script>
+<script src="/static/js/screens/console.js"></script>
+<script src="/static/js/screens/bank.js"></script>
+<script src="/static/js/screens/bbs.js"></script>
+<script src="/static/js/screens/highsecurity.js"></script>
+<script src="/static/js/screens/lan.js"></script>
+<script src="/static/js/screens/message.js"></script>
+<script src="/static/js/screens/userid.js"></script>
+<script src="/static/js/screens/links.js"></script>
+<script src="/static/js/screens/newsscreen.js"></script>
+<script src="/static/js/screens/ranking.js"></script>
+<script src="/static/js/screens/companyinfo.js"></script>
+<script src="/static/js/screens/criminal.js"></script>
+<script src="/static/js/screens/academic.js"></script>
+<script src="/static/js/screens/socsec.js"></script>
+<script src="/static/js/screens/record.js"></script>
+<script src="/static/js/screens/account.js"></script>
+<script src="/static/js/screens/contact.js"></script>
+<script src="/static/js/screens/security.js"></script>
+<script src="/static/js/screens/loans.js"></script>
+<script src="/static/js/screens/shareslist.js"></script>
+<script src="/static/js/screens/sharesview.js"></script>
+<script src="/static/js/screens/swsales.js"></script>
+<script src="/static/js/screens/hwsales.js"></script>
+<script src="/static/js/screens/faith.js"></script>
+<script src="/static/js/screens/cypher.js"></script>
+<script src="/static/js/screens/voice.js"></script>
+<script src="/static/js/screens/voicephone.js"></script>
+<script src="/static/js/screens/nearestgw.js"></script>
+<script src="/static/js/screens/changegw.js"></script>
+<script src="/static/js/screens/disconnected.js"></script>
+<script src="/static/js/screens/protovision.js"></script>
+<script src="/static/js/screens/nuclearwar.js"></script>
+<script src="/static/js/screens/radiotx.js"></script>
+
+{# ── Application entry point (must load last) ── #}
+<script src="/static/js/app.js"></script>
+{% endblock %}

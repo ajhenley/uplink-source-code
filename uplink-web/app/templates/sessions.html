@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Game Sessions{% endblock %}
+
+{% block content %}
+<div class="sessions-container">
+
+    <h1 class="terminal-heading">// UPLINK — GAME SESSIONS</h1>
+
+    <div class="sessions-actions">
+        <form method="post" action="{{ url_for('game.new_game') }}" class="new-game-form" autocomplete="off">
+            <div class="form-row">
+                <label for="agent_handle" class="terminal-label">AGENT HANDLE &gt;</label>
+                <input type="text" id="agent_handle" name="agent_handle" class="terminal-input" required spellcheck="false" placeholder="Enter handle...">
+            </div>
+            <div class="form-row">
+                <label for="session_name" class="terminal-label">SESSION NAME &gt;</label>
+                <input type="text" id="session_name" name="session_name" class="terminal-input" spellcheck="false" placeholder="(optional)">
+            </div>
+            <div class="form-row">
+                <label for="city_index" class="terminal-label">GATEWAY CITY &gt;</label>
+                <select id="city_index" name="city_index" class="terminal-input">
+                    <option value="0">London, United Kingdom</option>
+                    <option value="1">Tokyo, Japan</option>
+                    <option value="2">Los Angeles, USA</option>
+                    <option value="3">New York, USA</option>
+                    <option value="4">Chicago, USA</option>
+                    <option value="5">Moscow, Russia</option>
+                    <option value="6">Hong Kong, China</option>
+                    <option value="7">Sydney, Australia</option>
+                </select>
+            </div>
+            <button type="submit" class="terminal-btn terminal-btn-primary">[ NEW GAME ]</button>
+        </form>
+    </div>
+
+    {% if sessions %}
+    <table class="sessions-table">
+        <thead>
+            <tr>
+                <th>SESSION</th>
+                <th>CREATED</th>
+                <th>STATUS</th>
+                <th>ACTIONS</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in sessions %}
+            <tr>
+                <td class="session-name">
+                    {{ s.name }}
+                    {% if s.last_saved_at and s.last_saved_at > 0 %}
+                    <br><span class="text-dim text-small">Last saved at tick {{ s.last_saved_at }}</span>
+                    {% endif %}
+                </td>
+                <td class="session-date">{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '---' }}</td>
+                <td class="session-status">
+                    {% if s.is_active %}
+                        <span class="status-active">ACTIVE</span>
+                    {% else %}
+                        <span class="status-ended">ENDED</span>
+                    {% endif %}
+                </td>
+                <td class="session-actions">
+                    {% if s.is_active %}
+                    <a href="{{ url_for('game.play', session_id=s.id) }}" class="terminal-btn terminal-btn-small">[ PLAY ]</a>
+                    {% endif %}
+                    <form method="post" action="{{ url_for('game.delete_game', session_id=s.id) }}" style="display:inline;">
+                        <button type="submit" class="terminal-btn terminal-btn-small terminal-btn-danger" onclick="return confirm('Delete this session permanently?')">[ DELETE ]</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="no-sessions">
+        <p class="terminal-muted">No saved game sessions. Create a new game to begin.</p>
+    </div>
+    {% endif %}
+
+    <div class="sessions-footer">
+        <a href="{{ url_for('auth.logout') }}" class="terminal-link">[ LOGOUT ]</a>
+    </div>
+
+</div>
+{% endblock %}

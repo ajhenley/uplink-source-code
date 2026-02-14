@@ -1,0 +1,1556 @@
+/* ============================================================
+   UPLINK WEB - Terminal Theme CSS
+   The sole stylesheet for the entire game.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+
+/* ----- Color Palette (as custom properties) ----- */
+:root {
+    --bg:             #0a0a0a;
+    --primary:        #00ff41;
+    --secondary:      #00cc33;
+    --dim:            #006622;
+    --warning:        #ffaa00;
+    --danger:         #ff3333;
+    --highlight:      #00ffff;
+    --panel-bg:       #0d1117;
+    --panel-border:   #00ff41;
+    --input-bg:       #111111;
+    --btn-hover-bg:   rgba(0, 255, 65, 0.15);
+
+    /* Aliases used by panel JS (inline styles) */
+    --text:           #c0c0c0;
+    --cyan:           #00ffff;
+    --border:         rgba(0, 255, 65, 0.3);
+    --bg-panel:       #0d1117;
+}
+
+/* ----- Reset / Global ----- */
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+body.terminal-body {
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: var(--bg);
+    color: var(--primary);
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+/* Selection */
+::selection {
+    background: rgba(0, 255, 65, 0.25);
+    color: var(--primary);
+}
+
+::-moz-selection {
+    background: rgba(0, 255, 65, 0.25);
+    color: var(--primary);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--dim);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--secondary);
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--dim) var(--bg);
+}
+
+/* ----- CRT Effects ----- */
+
+.crt-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 9999;
+    background:
+        repeating-linear-gradient(
+            to bottom,
+            transparent 0px,
+            transparent 2px,
+            rgba(0, 0, 0, 0.12) 2px,
+            rgba(0, 0, 0, 0.12) 4px
+        ),
+        radial-gradient(
+            ellipse at center,
+            transparent 60%,
+            rgba(0, 0, 0, 0.45) 100%
+        );
+}
+
+.crt-flicker {
+    animation: crt-flicker-anim 0.08s infinite alternate;
+}
+
+@keyframes crt-flicker-anim {
+    0%   { opacity: 0.98; }
+    100% { opacity: 1.0;  }
+}
+
+/* ----- HUD (top bar) ----- */
+
+#hud {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 15px;
+    background: #0f0f0f;
+    border-bottom: 1px solid var(--primary);
+    z-index: 200;
+}
+
+.hud-left,
+.hud-center,
+.hud-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.hud-balance {
+    color: var(--highlight);
+    font-weight: 700;
+}
+
+.hud-rating {
+    font-size: 11px;
+    padding: 2px 8px;
+    border: 1px solid var(--primary);
+    border-radius: 3px;
+    color: var(--primary);
+    background: rgba(0, 255, 65, 0.06);
+}
+
+.hud-time {
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    letter-spacing: 1px;
+    color: var(--secondary);
+}
+
+.hud-speed {
+    font-size: 11px;
+    color: var(--dim);
+}
+
+.hud-speed .active {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.hud-btn {
+    background: none;
+    border: 1px solid var(--dim);
+    color: var(--primary);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    margin-right: 8px;
+}
+
+.hud-btn:hover {
+    border-color: var(--primary);
+    box-shadow: 0 0 4px var(--primary);
+}
+
+/* ----- Trace Bar ----- */
+
+#trace-bar {
+    position: fixed;
+    top: 40px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: transparent;
+    z-index: 199;
+}
+
+.trace-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--danger);
+    transition: width 0.3s linear;
+}
+
+#trace-bar.active {
+    animation: trace-pulse 1.5s ease-in-out infinite;
+}
+
+#trace-bar.active .trace-bar-fill {
+    box-shadow: 0 0 8px var(--danger);
+}
+
+/* ----- Quick Access Buttons ----- */
+
+#quick-access {
+    position: fixed;
+    top: 43px;
+    left: 0;
+    right: 0;
+    display: flex;
+    flex-direction: row;
+    gap: 5px;
+    padding: 5px 15px;
+    background: var(--panel-bg);
+    border-bottom: 1px solid rgba(0, 255, 65, 0.15);
+    z-index: 198;
+}
+
+.quick-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--primary);
+    background: transparent;
+    color: var(--primary);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    transition: background 0.15s;
+    position: relative;
+}
+
+.quick-btn:hover {
+    background: var(--btn-hover-bg);
+}
+
+.quick-btn:active {
+    background: rgba(0, 255, 65, 0.25);
+}
+
+.quick-btn .badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--danger);
+    color: #fff;
+    font-size: 9px;
+    line-height: 14px;
+    text-align: center;
+    padding: 0 3px;
+}
+
+/* ----- World Map ----- */
+
+#world-map {
+    position: fixed;
+    top: 73px;
+    left: 0;
+    right: 0;
+    bottom: 50px;
+    overflow: hidden;
+    background-color: #080c10;
+    background-image:
+        linear-gradient(rgba(0, 255, 65, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 65, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+}
+
+.map-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.map-node {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+    transition: box-shadow 0.2s, background 0.2s;
+}
+
+.map-node:hover {
+    box-shadow: 0 0 8px var(--primary), 0 0 16px rgba(0, 255, 65, 0.3);
+}
+
+.map-node.active {
+    background: var(--highlight);
+    box-shadow: 0 0 8px var(--highlight), 0 0 16px rgba(0, 255, 255, 0.4);
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.map-node.bounce {
+    background: var(--warning);
+    box-shadow: 0 0 6px var(--warning);
+}
+
+.map-node .map-node-label {
+    position: absolute;
+    top: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 9px;
+    color: var(--dim);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.map-node:hover .map-node-label {
+    opacity: 1;
+    color: var(--primary);
+}
+
+.map-line {
+    stroke: var(--primary);
+    stroke-width: 1;
+    opacity: 0.5;
+    fill: none;
+}
+
+.map-line.active {
+    stroke: var(--highlight);
+    opacity: 0.8;
+    stroke-dasharray: 6 4;
+    animation: dash-march 0.8s linear infinite;
+}
+
+@keyframes dash-march {
+    to { stroke-dashoffset: -10; }
+}
+
+/* ----- Bottom Bar ----- */
+
+#bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 50px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    background: var(--panel-bg);
+    border-top: 1px solid var(--primary);
+    z-index: 200;
+}
+
+#bounce-chain {
+    display: flex;
+    flex-direction: row;
+    gap: 3px;
+    overflow-x: auto;
+    flex: 1;
+    padding: 0 10px;
+    align-items: center;
+}
+
+.bounce-node {
+    display: inline-block;
+    padding: 2px 8px;
+    border: 1px solid var(--primary);
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    color: var(--primary);
+    background: transparent;
+    transition: background 0.15s;
+}
+
+.bounce-node:hover {
+    background: rgba(0, 255, 255, 0.1);
+}
+
+.bounce-node.active {
+    border-color: var(--highlight);
+    color: var(--highlight);
+}
+
+.bounce-arrow {
+    color: var(--dim);
+    font-size: 10px;
+    user-select: none;
+}
+
+#connect-btn {
+    padding: 6px 16px;
+    border: 2px solid var(--primary);
+    background: transparent;
+    color: var(--primary);
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    margin: 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+#connect-btn:hover {
+    background: var(--btn-hover-bg);
+}
+
+#connect-btn.connected {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+#connect-btn.connected:hover {
+    background: rgba(255, 51, 51, 0.15);
+}
+
+#software-toolbar {
+    display: flex;
+    flex-direction: row;
+    gap: 3px;
+    padding: 0 10px;
+    align-items: center;
+    overflow-x: auto;
+}
+
+.tool-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--dim);
+    background: transparent;
+    color: var(--dim);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.tool-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.tool-btn.active {
+    background: rgba(0, 255, 65, 0.2);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+/* ----- Task Bar ----- */
+
+#task-bar {
+    position: fixed;
+    bottom: 50px;
+    right: 0;
+    width: 280px;
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--panel-bg);
+    border-left: 1px solid var(--dim);
+    border-top: 1px solid var(--dim);
+    z-index: 150;
+}
+
+.task-item {
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(0, 102, 34, 0.3);
+    font-size: 11px;
+}
+
+.task-item:last-child {
+    border-bottom: none;
+}
+
+.task-name {
+    color: var(--primary);
+}
+
+.task-target {
+    color: var(--dim);
+    font-size: 10px;
+}
+
+.task-progress {
+    height: 3px;
+    background: #222;
+    margin-top: 2px;
+    border-radius: 1px;
+    overflow: hidden;
+}
+
+.task-progress-fill {
+    height: 100%;
+    background: var(--highlight);
+    transition: width 0.3s linear;
+}
+
+.task-cancel {
+    float: right;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 10px;
+    border: none;
+    background: none;
+    font-family: inherit;
+    padding: 0;
+}
+
+.task-cancel:hover {
+    text-decoration: underline;
+}
+
+/* ----- Panels (generic) ----- */
+
+.panel {
+    position: absolute;
+    background: var(--panel-bg);
+    border: 1px solid var(--primary);
+    min-width: 300px;
+    min-height: 200px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
+}
+
+.panel-header {
+    height: 28px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+    background: rgba(0, 255, 65, 0.08);
+    border-bottom: 1px solid var(--primary);
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.panel-header:active {
+    cursor: grabbing;
+}
+
+.panel-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--primary);
+}
+
+.panel-close {
+    cursor: pointer;
+    color: var(--danger);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    border: none;
+    background: none;
+    font-family: inherit;
+    padding: 0 4px;
+}
+
+.panel-close:hover {
+    text-shadow: 0 0 6px var(--danger);
+}
+
+.panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    font-size: 12px;
+}
+
+.panel.hidden {
+    display: none;
+}
+
+/* ----- Remote Screen Panel ----- */
+
+#remote-panel {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    height: 450px;
+    z-index: 300;
+}
+
+.screen-menu-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(0, 255, 65, 0.1);
+    color: var(--primary);
+    transition: background 0.15s;
+}
+
+.screen-menu-item:hover {
+    background: rgba(0, 255, 65, 0.1);
+}
+
+.screen-menu-item:active {
+    background: rgba(0, 255, 65, 0.2);
+}
+
+.screen-file-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(0, 102, 34, 0.15);
+}
+
+.screen-file-row:hover {
+    background: rgba(0, 255, 65, 0.05);
+}
+
+.screen-file-name {
+    color: var(--primary);
+}
+
+.screen-file-size {
+    color: var(--dim);
+    font-size: 11px;
+}
+
+.screen-log-row {
+    font-size: 11px;
+    padding: 2px 8px;
+    color: var(--secondary);
+    border-bottom: 1px solid rgba(0, 102, 34, 0.1);
+}
+
+.screen-log-row .log-time {
+    color: var(--dim);
+    margin-right: 8px;
+}
+
+.screen-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--dim);
+    padding: 8px 8px 4px;
+    border-bottom: 1px solid rgba(0, 255, 65, 0.15);
+}
+
+/* ----- Tab Buttons (used by Finance, Gateway, etc.) ----- */
+
+.finance-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+    flex: 1;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--dim);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-btn:hover {
+    color: var(--primary);
+}
+
+.tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+
+/* ----- Forms / Inputs ----- */
+
+.terminal-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--input-bg);
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    font-size: 14px;
+    outline: none;
+    transition: box-shadow 0.2s;
+}
+
+.terminal-input:focus {
+    box-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
+}
+
+.terminal-input::placeholder {
+    color: var(--dim);
+}
+
+.terminal-btn {
+    padding: 8px 24px;
+    background: transparent;
+    border: 2px solid var(--primary);
+    color: var(--primary);
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    font-size: 14px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    transition: background 0.15s, box-shadow 0.2s;
+}
+
+.terminal-btn:hover {
+    background: var(--btn-hover-bg);
+    box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+}
+
+.terminal-btn:active {
+    background: rgba(0, 255, 65, 0.25);
+}
+
+.terminal-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.terminal-btn.danger {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.terminal-btn.danger:hover {
+    background: rgba(255, 51, 51, 0.15);
+    box-shadow: 0 0 10px rgba(255, 51, 51, 0.3);
+}
+
+/* ----- Login Page ----- */
+
+.login-container {
+    max-width: 500px;
+    margin: 0 auto;
+    padding-top: 10vh;
+    padding-left: 20px;
+    padding-right: 20px;
+}
+
+.login-logo {
+    text-align: center;
+    color: var(--primary);
+    white-space: pre;
+    font-size: 10px;
+    line-height: 1.2;
+    margin-bottom: 10px;
+    text-shadow: 0 0 8px rgba(0, 255, 65, 0.4);
+}
+
+.login-subtitle {
+    text-align: center;
+    color: var(--dim);
+    font-style: italic;
+    margin-bottom: 30px;
+    font-size: 13px;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.login-label {
+    color: var(--secondary);
+    font-size: 12px;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.login-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.login-toggle {
+    text-align: center;
+    margin-top: 20px;
+    color: var(--dim);
+    font-size: 12px;
+}
+
+.login-toggle a {
+    color: var(--highlight);
+    text-decoration: none;
+}
+
+.login-toggle a:hover {
+    text-decoration: underline;
+}
+
+.login-error {
+    color: var(--danger);
+    font-size: 12px;
+    text-align: center;
+    margin-top: 10px;
+}
+
+/* ----- Session List ----- */
+
+.session-list {
+    max-width: 600px;
+    margin: 0 auto;
+    padding-top: 5vh;
+    padding-left: 20px;
+    padding-right: 20px;
+}
+
+.session-list-title {
+    font-size: 16px;
+    color: var(--primary);
+    margin-bottom: 20px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.session-item {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid var(--primary);
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.session-item:hover {
+    background: rgba(0, 255, 65, 0.08);
+}
+
+.session-item .session-name {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.session-item .session-date {
+    color: var(--dim);
+    font-size: 11px;
+}
+
+.session-item .session-delete {
+    color: var(--danger);
+    font-size: 11px;
+    cursor: pointer;
+    border: none;
+    background: none;
+    font-family: inherit;
+    padding: 2px 6px;
+}
+
+.session-item .session-delete:hover {
+    text-decoration: underline;
+}
+
+.new-session-btn {
+    text-align: center;
+    margin-top: 20px;
+}
+
+/* ----- Animations ----- */
+
+@keyframes pulse-glow {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.5; }
+}
+
+@keyframes trace-pulse {
+    0%, 100% { box-shadow: none; }
+    50%      { box-shadow: 0 0 10px var(--danger); }
+}
+
+@keyframes typing-cursor {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0; }
+}
+
+.typing-cursor::after {
+    content: '\2588';
+    animation: typing-cursor 1s step-end infinite;
+    color: var(--primary);
+}
+
+/* ----- Flash Messages ----- */
+
+.flash-message {
+    padding: 8px 15px;
+    margin: 5px 15px;
+    border: 1px solid;
+    font-size: 12px;
+}
+
+.flash-message.success {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: rgba(0, 255, 65, 0.05);
+}
+
+.flash-message.error {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: rgba(255, 51, 51, 0.05);
+}
+
+.flash-message.warning {
+    border-color: var(--warning);
+    color: var(--warning);
+    background: rgba(255, 170, 0, 0.05);
+}
+
+/* ----- Notifications (toast-style) ----- */
+
+.notification {
+    position: fixed;
+    top: 50px;
+    right: 15px;
+    padding: 8px 15px;
+    font-size: 12px;
+    z-index: 9000;
+    border: 1px solid var(--primary);
+    background: var(--panel-bg);
+    color: var(--primary);
+    animation: notification-in 0.3s ease-out;
+}
+
+.notification-error {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.notification-warning {
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.notification-info {
+    border-color: var(--highlight);
+    color: var(--highlight);
+}
+
+@keyframes notification-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ----- Utility Classes ----- */
+
+.text-primary   { color: var(--primary);   }
+.text-secondary { color: var(--secondary); }
+.text-dim       { color: var(--dim);       }
+.text-warning   { color: var(--warning);   }
+.text-danger    { color: var(--danger);    }
+.text-highlight { color: var(--highlight); }
+
+.text-center { text-align: center; }
+.text-right  { text-align: right;  }
+.text-bold   { font-weight: 700;   }
+.text-small  { font-size: 11px;    }
+
+.mt-1 { margin-top: 5px;  }
+.mt-2 { margin-top: 10px; }
+.mt-3 { margin-top: 20px; }
+.mb-1 { margin-bottom: 5px;  }
+.mb-2 { margin-bottom: 10px; }
+.mb-3 { margin-bottom: 20px; }
+
+.hidden { display: none !important; }
+
+/* ----- Responsive (small screens) ----- */
+
+@media (max-width: 768px) {
+    body.terminal-body {
+        font-size: 12px;
+    }
+
+    #hud {
+        height: 36px;
+        padding: 0 10px;
+        font-size: 11px;
+    }
+
+    .hud-rating {
+        font-size: 10px;
+        padding: 1px 5px;
+    }
+
+    #quick-access {
+        top: 39px;
+        padding: 4px 10px;
+        gap: 3px;
+    }
+
+    .quick-btn {
+        padding: 3px 8px;
+        font-size: 11px;
+    }
+
+    #world-map {
+        top: 66px;
+    }
+
+    .panel {
+        min-width: unset;
+        width: 100vw !important;
+        height: 100vh !important;
+        left: 0 !important;
+        top: 0 !important;
+        transform: none !important;
+        border: none;
+    }
+
+    #remote-panel {
+        width: 100vw;
+        height: 100vh;
+        left: 0;
+        top: 0;
+        transform: none;
+    }
+
+    #task-bar {
+        width: 100%;
+        max-height: 120px;
+    }
+
+    #bottom-bar {
+        height: 44px;
+    }
+
+    #connect-btn {
+        padding: 4px 10px;
+        font-size: 12px;
+    }
+
+    .bounce-node {
+        padding: 2px 6px;
+        font-size: 10px;
+    }
+
+    .tool-btn {
+        padding: 3px 7px;
+        font-size: 10px;
+    }
+
+    .login-container {
+        padding-top: 5vh;
+    }
+
+    .login-logo {
+        font-size: 7px;
+    }
+}
+
+/* ============================================================
+   SESSIONS PAGE
+   ============================================================ */
+
+.sessions-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 40px 20px;
+}
+
+.terminal-heading {
+    color: var(--primary);
+    font-size: 18px;
+    margin-bottom: 30px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+}
+
+.new-game-form {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-bottom: 30px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+}
+
+.form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 160px;
+}
+
+.sessions-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 30px;
+}
+
+.sessions-table th {
+    text-align: left;
+    color: var(--dim);
+    font-size: 11px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 1px;
+}
+
+.sessions-table td {
+    padding: 10px;
+    border-bottom: 1px solid rgba(0, 255, 65, 0.1);
+    vertical-align: middle;
+}
+
+.session-name {
+    color: var(--primary);
+    font-weight: bold;
+}
+
+.session-date {
+    color: var(--dim);
+    font-size: 12px;
+}
+
+.status-active {
+    color: var(--primary);
+}
+
+.status-ended {
+    color: var(--danger);
+}
+
+.session-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.terminal-btn-small {
+    padding: 3px 10px;
+    font-size: 11px;
+}
+
+.terminal-btn-danger {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.terminal-btn-danger:hover {
+    background: rgba(255, 51, 51, 0.15);
+}
+
+.no-sessions {
+    text-align: center;
+    padding: 40px;
+    border: 1px dashed var(--border);
+}
+
+.terminal-muted {
+    color: var(--dim);
+}
+
+.sessions-footer {
+    margin-top: 30px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+/* ============================================================
+   PHASE 14 — Terminal Atmosphere & Polish Effects
+   ============================================================ */
+
+/* ----- 1. CRT Scanline Overlay (body ::after) ----- */
+
+body.terminal-body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 10000;
+    background: repeating-linear-gradient(
+        to bottom,
+        transparent 0px,
+        transparent 2px,
+        rgba(0, 0, 0, 0.08) 2px,
+        rgba(0, 0, 0, 0.08) 4px
+    );
+}
+
+body.terminal-body.crt-off::after {
+    display: none;
+}
+
+/* ----- 2. Screen Flicker Animation ----- */
+
+@keyframes flicker {
+    0%   { opacity: 1.0;  }
+    5%   { opacity: 0.98; }
+    10%  { opacity: 1.0;  }
+    15%  { opacity: 0.97; }
+    20%  { opacity: 1.0;  }
+    50%  { opacity: 1.0;  }
+    52%  { opacity: 0.98; }
+    54%  { opacity: 1.0;  }
+    75%  { opacity: 1.0;  }
+    77%  { opacity: 0.97; }
+    78%  { opacity: 1.0;  }
+    90%  { opacity: 0.99; }
+    100% { opacity: 1.0;  }
+}
+
+.game-container {
+    animation: flicker 4s infinite;
+}
+
+/* ----- 3. Green Phosphor Glow ----- */
+
+.panel-body,
+.terminal-output {
+    text-shadow:
+        0 0 2px rgba(0, 255, 65, 0.4),
+        0 0 8px rgba(0, 255, 65, 0.15);
+}
+
+/* ----- 4. Typing Animation ----- */
+
+@keyframes typewriter {
+    from { max-width: 0; }
+    to   { max-width: 100%; }
+}
+
+.typing-anim {
+    display: inline-block;
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 0;
+    animation: typewriter 0.8s steps(40, end) forwards;
+}
+
+/* ----- 5. Trace Warning Effects ----- */
+
+@keyframes pulse-red {
+    0%, 100% {
+        box-shadow: 0 0 4px rgba(255, 51, 51, 0.3);
+    }
+    50% {
+        box-shadow:
+            0 0 12px rgba(255, 51, 51, 0.7),
+            0 0 24px rgba(255, 51, 51, 0.3);
+    }
+}
+
+#trace-bar.trace-active {
+    animation: pulse-red 1s ease-in-out infinite;
+    background: rgba(255, 51, 51, 0.08);
+}
+
+#trace-bar.trace-active .trace-bar-fill {
+    box-shadow:
+        0 0 8px var(--danger),
+        0 0 16px rgba(255, 51, 51, 0.4);
+}
+
+.trace-active ~ #hud,
+body.trace-active #hud {
+    border-bottom-color: var(--danger);
+    animation: trace-border-flash 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes trace-border-flash {
+    0%   { border-bottom-color: var(--danger); }
+    100% { border-bottom-color: rgba(255, 51, 51, 0.3); }
+}
+
+/* ----- 6. Connection Animation (matrix-style static) ----- */
+
+@keyframes matrix-rain {
+    0% {
+        background-position: 0% 0%;
+    }
+    100% {
+        background-position: 0% 100%;
+    }
+}
+
+@keyframes static-noise {
+    0%   { opacity: 0.05; transform: translateX(0); }
+    20%  { opacity: 0.08; transform: translateX(-1px); }
+    40%  { opacity: 0.03; transform: translateX(2px); }
+    60%  { opacity: 0.07; transform: translateX(-2px); }
+    80%  { opacity: 0.04; transform: translateX(1px); }
+    100% { opacity: 0.05; transform: translateX(0); }
+}
+
+.connecting-anim {
+    position: relative;
+    overflow: hidden;
+}
+
+.connecting-anim::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 1;
+    background:
+        repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2px,
+            rgba(0, 255, 65, 0.03) 2px,
+            rgba(0, 255, 65, 0.03) 4px
+        ),
+        repeating-linear-gradient(
+            90deg,
+            transparent,
+            transparent 10px,
+            rgba(0, 255, 65, 0.02) 10px,
+            rgba(0, 255, 65, 0.02) 20px
+        );
+    background-size: 100% 200%;
+    animation: matrix-rain 2s linear infinite;
+}
+
+.connecting-anim::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 2;
+    background:
+        url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E");
+    animation: static-noise 0.15s steps(5) infinite;
+}
+
+/* ----- 7. Button Hover Effects (enhanced terminal-btn) ----- */
+
+.terminal-btn:hover {
+    background: var(--btn-hover-bg);
+    box-shadow:
+        0 0 10px rgba(0, 255, 65, 0.3),
+        0 0 20px rgba(0, 255, 65, 0.15),
+        inset 0 0 8px rgba(0, 255, 65, 0.05);
+    border-color: #33ff66;
+    text-shadow: 0 0 4px rgba(0, 255, 65, 0.5);
+}
+
+.terminal-btn.danger:hover {
+    box-shadow:
+        0 0 10px rgba(255, 51, 51, 0.3),
+        0 0 20px rgba(255, 51, 51, 0.15),
+        inset 0 0 8px rgba(255, 51, 51, 0.05);
+    border-color: #ff5555;
+    text-shadow: 0 0 4px rgba(255, 51, 51, 0.5);
+}
+
+/* ----- 8. Cursor Blink ----- */
+
+@keyframes cursor-blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0; }
+}
+
+.cursor-blink::after {
+    content: '_';
+    display: inline-block;
+    animation: cursor-blink 1s step-end infinite;
+    color: var(--primary);
+    margin-left: 1px;
+}
+
+/* ----- 9. Panel Transitions (fade-in on show) ----- */
+
+.panel {
+    opacity: 0;
+    animation: panel-fade-in 0.25s ease-out forwards;
+}
+
+@keyframes panel-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Override for remote-panel which uses its own centering transform */
+#remote-panel {
+    animation: remote-panel-fade-in 0.25s ease-out forwards;
+}
+
+@keyframes remote-panel-fade-in {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -50%) translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) translateY(0);
+    }
+}
+
+/* Panels hidden should reset animation */
+.panel.hidden {
+    animation: none;
+    opacity: 0;
+}
+
+/* ----- 10. Responsive Tweaks ----- */
+
+/* Tablet (max-width: 1024px) */
+@media (max-width: 1024px) {
+    .panel {
+        min-width: unset;
+        width: 100% !important;
+        left: 0 !important;
+        right: 0 !important;
+    }
+
+    #remote-panel {
+        width: 100%;
+        left: 0;
+        right: 0;
+        transform: translate(0, -50%);
+    }
+
+    @keyframes remote-panel-fade-in {
+        from {
+            opacity: 0;
+            transform: translate(0, -50%) translateY(6px);
+        }
+        to {
+            opacity: 1;
+            transform: translate(0, -50%) translateY(0);
+        }
+    }
+
+    #task-bar {
+        width: 100%;
+    }
+
+    #software-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .hud-center {
+        display: none;
+    }
+
+    .sessions-container {
+        padding: 20px 15px;
+    }
+
+    .new-game-form {
+        flex-direction: column;
+    }
+}
+
+/* Mobile (max-width: 768px) — augments existing 768px rules */
+@media (max-width: 768px) {
+    /* Simplify layout: stack everything vertically */
+    .hud-left,
+    .hud-right {
+        gap: 6px;
+    }
+
+    .hud-center {
+        display: none;
+    }
+
+    .hud-balance {
+        font-size: 12px;
+    }
+
+    .hud-speed {
+        display: none;
+    }
+
+    #quick-access {
+        flex-wrap: wrap;
+        overflow-x: visible;
+    }
+
+    #bounce-chain {
+        max-width: 50vw;
+    }
+
+    #software-toolbar {
+        max-width: 40vw;
+        flex-wrap: nowrap;
+    }
+
+    /* Disable CRT scanline overlay on mobile for performance */
+    body.terminal-body::after {
+        display: none;
+    }
+
+    /* Disable flicker animation on mobile for performance */
+    .game-container {
+        animation: none;
+    }
+
+    /* Reduce phosphor glow on mobile */
+    .panel-body,
+    .terminal-output {
+        text-shadow: none;
+    }
+
+    /* Full-width session items */
+    .session-actions {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .sessions-table th:nth-child(3),
+    .sessions-table td:nth-child(3) {
+        display: none;
+    }
+}
