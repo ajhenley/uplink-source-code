@@ -119,6 +119,7 @@ def generate_world(game_session_id):
                     {"label": "Hardware Sales", "screen": 6},
                     {"label": "About Uplink", "screen": 2},
                     {"label": "Test Machine Access", "screen": 3},
+                    {"label": "Agent Rankings", "screen": 7},
                 ]})
     _add_screen(uplink_pas.id, 2, SCREEN_MESSAGE,
                 title="About Uplink",
@@ -147,6 +148,9 @@ def generate_world(game_session_id):
     _add_screen(uplink_pas.id, 6, SCREEN_HWSHOP,
                 title="Uplink Corporation",
                 subtitle="Hardware Sales")
+    _add_screen(uplink_pas.id, 7, SCREEN_RANKINGS,
+                title="Uplink Corporation",
+                subtitle="Agent Rankings")
 
     # --- Uplink Test Machine ---
     _add_location(gsid, IP_UPLINK_TEST, x=420, y=320)
@@ -206,6 +210,43 @@ def generate_world(game_session_id):
     _add_screen(internic.id, 0, SCREEN_LINKS,
                 title="InterNIC",
                 subtitle="International Network Information Center")
+
+    # --- Uplink News Network ---
+    _add_location(gsid, IP_NEWS_NETWORK, x=300, y=200)
+    news_comp = Computer(
+        game_session_id=gsid,
+        name="Uplink News Network",
+        company_name="Uplink Corporation",
+        ip=IP_NEWS_NETWORK,
+        computer_type=COMP_PUBLIC_ACCESS,
+        trace_speed=TRACE_NONE,
+        is_externally_open=True,
+    )
+    db.session.add(news_comp)
+    db.session.flush()
+    _add_screen(news_comp.id, 0, SCREEN_NEWS,
+                title="Uplink News Network",
+                subtitle="Latest Headlines")
+
+    # Seed article
+    seed_article = DataFile(
+        computer_id=news_comp.id,
+        filename="news_0.dat",
+        size=1,
+        file_type="NEWS",
+    )
+    seed_article.content = {
+        "headline": "Uplink Corporation launches new agent program",
+        "body": (
+            "Uplink Corporation launches new agent program.\n\n"
+            "The world's leading computer espionage firm announced today\n"
+            "that it is recruiting new agents for its expanding roster.\n"
+            "Interested operatives should register via the Public Access Server."
+        ),
+        "source": "Uplink News Network",
+        "tick": 0,
+    }
+    db.session.add(seed_article)
 
     # --- Government Systems ---
     _create_gov_system(gsid, IP_CRIMINAL_DB, "Global Criminal Database",
@@ -334,6 +375,9 @@ def generate_world(game_session_id):
     ))
     db.session.add(PlayerLink(
         game_session_id=gsid, ip=IP_UPLINK_BANK, label="Uplink International Bank",
+    ))
+    db.session.add(PlayerLink(
+        game_session_id=gsid, ip=IP_NEWS_NETWORK, label="Uplink News Network",
     ))
 
     # --- Connection object ---

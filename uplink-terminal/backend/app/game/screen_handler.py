@@ -38,6 +38,8 @@ def handle_screen_input(text, session):
         SCREEN_HWSHOP: _handle_hwshop,
         SCREEN_BANKACCOUNTS: _handle_bankaccounts,
         SCREEN_BANKTRANSFER: _handle_banktransfer,
+        SCREEN_NEWS: _handle_news,
+        SCREEN_RANKINGS: _handle_rankings,
     }
 
     handler = handlers.get(screen.screen_type)
@@ -626,4 +628,59 @@ def _handle_hwshop(text, computer, screen, session):
             f"Installed {name} ({value} {unit}) for {cost} credits. Balance: {gs.balance}c."
         )
 
+    return None
+
+
+def _handle_news(text, computer, screen, session):
+    """NEWS: number reads article detail, 'dc' disconnects."""
+    cmd = text.strip().lower()
+
+    if cmd == "back" or cmd == "dc":
+        return None  # let main dispatcher handle dc
+
+    try:
+        idx = int(cmd)
+    except ValueError:
+        return None
+
+    articles = (
+        DataFile.query
+        .filter_by(computer_id=computer.id, file_type="NEWS")
+        .order_by(DataFile.id.desc())
+        .all()
+    )
+
+    if idx < 1 or idx > len(articles):
+        return error(f"Invalid article number. Range: 1-{len(articles)}.")
+
+    a = articles[idx - 1]
+    content = a.content
+    headline = content.get("headline", "Untitled")
+    body = content.get("body", "No content.")
+    source = content.get("source", "Unknown")
+    tick = content.get("tick", 0)
+
+    lines = [
+        "",
+        f"  {bright_green(headline)}",
+        f"  {dim('=' * 50)}",
+        f"  {dim('Source:')} {cyan(source)}  |  {dim('Tick:')} {dim(str(tick))}",
+        "",
+    ]
+    for line in body.split("\n"):
+        lines.append(f"  {green(line)}")
+    lines.append("")
+    lines.append(dim("  Type another number to read, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _handle_rankings(text, computer, screen, session):
+    """RANKINGS: 'back' returns to menu."""
+    cmd = text.strip().lower()
+    if cmd == "back":
+        for s in computer.screens:
+            if s.screen_type == SCREEN_MENU:
+                return _navigate_to(session, computer, s.screen_index)
+        return _navigate_to(session, computer, 0)
     return None

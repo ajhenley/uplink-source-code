@@ -12,8 +12,8 @@ _COMMAND_CATEGORIES = {
     "Navigation": ["connect", "dc", "look", "links", "map", "internic",
                     "addlink", "rmlink", "route"],
     "Hacking": ["run", "stop", "tools", "probe", "trace"],
-    "Info": ["email", "read", "reply", "status", "whoami", "record"],
-    "Economy": ["balance", "finance", "missions", "software", "gateway"],
+    "Info": ["email", "read", "reply", "status", "whoami", "record", "news", "history"],
+    "Economy": ["balance", "finance", "missions", "software", "gateway", "files"],
     "Meta": ["help", "clear", "speed", "save", "quit", "rename"],
 }
 

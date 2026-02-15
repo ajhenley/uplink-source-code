@@ -21,6 +21,8 @@ def render_screen(computer, screen, session=None):
         SCREEN_HWSHOP: _render_hwshop,
         SCREEN_BANKACCOUNTS: _render_bankaccounts,
         SCREEN_BANKTRANSFER: _render_banktransfer,
+        SCREEN_NEWS: _render_news,
+        SCREEN_RANKINGS: _render_rankings,
     }
     renderer = renderers.get(screen.screen_type, _render_unknown)
     return renderer(computer, screen, session)
@@ -316,6 +318,99 @@ def _render_banktransfer(computer, screen, session):
     lines.append(f"  {yellow('Note: All transfers are logged.')}")
     lines.append("")
     lines.append(dim("  'back' to return, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_news(computer, screen, session):
+    """Render NEWS screen showing news articles."""
+    from ..models import DataFile
+
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    articles = (
+        DataFile.query
+        .filter_by(computer_id=computer.id, file_type="NEWS")
+        .order_by(DataFile.id.desc())
+        .all()
+    )
+
+    if not articles:
+        lines.append(f"  {dim('No news articles at this time.')}")
+    else:
+        for i, a in enumerate(articles, 1):
+            content = a.content
+            headline = content.get("headline", "Untitled")
+            source = content.get("source", "Unknown")
+            tick = content.get("tick", 0)
+            lines.append(
+                f"  {bright_green(str(i) + '.')} {green(headline)}"
+            )
+            lines.append(
+                f"      {dim(source)}  |  {dim('tick ' + str(tick))}"
+            )
+        lines.append("")
+        lines.append(f"  {dim(f'{len(articles)} article(s)')}")
+
+    lines.append("")
+    lines.append(dim("  Type a number to read, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_rankings(computer, screen, session):
+    """Render RANKINGS screen showing agent leaderboard."""
+    import random as _rng
+    from ..models import GameSession
+    from .constants import NPC_AGENT_NAMES, get_rating_name
+
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    if not session:
+        lines.append(f"  {dim('No session context.')}")
+        return "\n".join(lines)
+
+    gs = None
+    if session.game_session_id:
+        from ..extensions import db
+        gs = db.session.get(GameSession, session.game_session_id)
+
+    # Generate seeded NPC ratings based on game session id
+    seed = session.game_session_id or 0
+    rng = _rng.Random(seed)
+    entries = []
+    for name in NPC_AGENT_NAMES:
+        npc_rating = rng.randint(0, 150)
+        entries.append((name, npc_rating, False))
+
+    # Add player
+    player_name = session.username or "AGENT"
+    player_rating = gs.uplink_rating if gs else 0
+    entries.append((player_name, player_rating, True))
+
+    # Sort by rating descending
+    entries.sort(key=lambda e: e[1], reverse=True)
+
+    lines.append(f"  {cyan('Rank'):<8} {cyan('Agent'):<24} {cyan('Rating')}")
+    lines.append(f"  {dim('-' * 50)}")
+
+    for rank, (name, rating, is_player) in enumerate(entries, 1):
+        rating_label = get_rating_name(rating)
+        if is_player:
+            lines.append(
+                f"  {bright_green(str(rank) + '.'):<8} "
+                f"{bright_green(name):<24} "
+                f"{bright_green(f'{rating} ({rating_label})')}"
+            )
+        else:
+            lines.append(
+                f"  {dim(str(rank) + '.'):<8} "
+                f"{green(name):<24} "
+                f"{dim(f'{rating} ({rating_label})')}"
+            )
+
+    lines.append("")
+    lines.append(dim("  'back' to return to menu, 'dc' to disconnect"))
     lines.append("")
     return "\n".join(lines)
 

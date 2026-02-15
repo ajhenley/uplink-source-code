@@ -8,6 +8,7 @@ IP_CRIMINAL_DB = "176.333.12.100"
 IP_SOCIAL_SECURITY = "187.242.55.203"
 IP_ACADEMIC_DB = "201.618.73.312"
 IP_UPLINK_BANK = "491.220.38.901"
+IP_NEWS_NETWORK = "301.444.12.876"
 
 # Starting balance (credits)
 STARTING_BALANCE = 3000
@@ -86,6 +87,8 @@ SCREEN_SHOP = "SHOP"
 SCREEN_HWSHOP = "HWSHOP"
 SCREEN_BANKACCOUNTS = "BANKACCOUNTS"
 SCREEN_BANKTRANSFER = "BANKTRANSFER"
+SCREEN_NEWS = "NEWS"
+SCREEN_RANKINGS = "RANKINGS"
 
 # Game speed labels
 SPEED_LABELS = {0: "Paused", 1: "Normal", 3: "Fast", 8: "MegaFast"}
@@ -274,6 +277,52 @@ CRIMINAL_CONVICTIONS = [
     "Robbery", "High tech fraud", "Tax evasion",
     "Embezzlement", "Forgery", "None",
 ]
+
+
+# News system
+NEWS_GENERATION_INTERVAL = 800   # ticks between random news articles
+MAX_NEWS_ARTICLES = 30           # trim oldest beyond this
+MAX_CONNECTION_HISTORY = 20      # max connection history entries
+SECURITY_MAX_LEVEL = 5           # cap for security system upgrades
+
+# Random news headline templates ({company} is replaced)
+NEWS_RANDOM_EVENTS = [
+    "{company} announces record quarterly profits",
+    "{company} hit by internal data leak",
+    "{company} unveils new security partnership",
+    "Stock prices surge for {company} after merger talks",
+    "{company} lays off 200 workers in restructuring",
+    "CEO of {company} resigns amid scandal",
+    "{company} wins government defense contract",
+    "Hackers target {company} in coordinated attack",
+    "{company} opens new data center in Singapore",
+    "Whistleblower exposes {company} accounting fraud",
+    "{company} acquires rival firm for $2.4 billion",
+    "Fire at {company} headquarters causes evacuations",
+    "{company} reports critical software vulnerability",
+    "New {company} product launch exceeds expectations",
+    "{company} faces class action lawsuit from investors",
+]
+
+# NPC agent names for rankings
+NPC_AGENT_NAMES = [
+    "Acid Burn", "Crash Override", "Cereal Killer", "Lord Nikon",
+    "The Phantom", "Zero Cool", "Razor", "Blade Runner",
+    "Ghost", "Neo", "Morpheus", "Trinity",
+    "Darkstar", "Binary", "Cipher",
+]
+
+# Rating tier thresholds and unlock hints
+RATING_UNLOCK_HINTS = {
+    1: "You are now a Registered agent. Basic missions are available on the BBS.",
+    2: "Beginner tier reached. You can now take on file-based contracts.",
+    6: "Novice rating achieved. Academic record missions are now available.",
+    15: "Confident tier! More complex missions await. Consider upgrading your hardware.",
+    35: "Intermediate agent. You have access to high-value contracts.",
+    60: "Skilled tier reached. Government systems are within your reach.",
+    90: "Experienced agent. Few systems can withstand your expertise.",
+    125: "Knowledgeable — the highest rating tier. You are elite.",
+}
 
 
 def get_rating_name(rating):

@@ -8,7 +8,8 @@ from ..terminal.output import (
 from ..extensions import db
 from ..models import (
     GameSession, Computer, PlayerLink, Connection, VLocation, AccessLog,
-    Email, Software, RunningTool, Hardware, SecuritySystem,
+    Email, Software, RunningTool, Hardware, SecuritySystem, DataFile,
+    ConnectionHistory,
 )
 from ..game.constants import *
 from ..game.screen_renderer import render_screen
@@ -112,6 +113,24 @@ def cmd_connect(args, session):
             action="Connected",
         )
         db.session.add(log)
+
+        # Record connection history
+        db.session.add(ConnectionHistory(
+            game_session_id=session.game_session_id,
+            ip=target_ip,
+            computer_name=computer.name,
+            connected_at_tick=gs.game_time_ticks,
+        ))
+        # Trim to MAX_CONNECTION_HISTORY entries
+        all_hist = (
+            ConnectionHistory.query
+            .filter_by(game_session_id=session.game_session_id)
+            .order_by(ConnectionHistory.id.desc())
+            .all()
+        )
+        for old in all_hist[MAX_CONNECTION_HISTORY:]:
+            db.session.delete(old)
+
         db.session.commit()
 
     # Connect terminal session
@@ -1022,4 +1041,103 @@ registry.register(
     "whoami", cmd_whoami,
     states=[SessionState.IN_GAME],
     description="Quick agent info",
+)
+
+
+def cmd_files(args, session):
+    """List or delete files on your gateway."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    gsid = session.game_session_id
+    gs = db.session.get(GameSession, gsid)
+    if not gs:
+        return error("No active game session.")
+
+    gw = Computer.query.filter_by(game_session_id=gsid, ip=gs.gateway_ip).first()
+    if not gw:
+        return error("Gateway not found.")
+
+    # Handle delete subcommand
+    if args and args[0].lower() == "delete":
+        if len(args) < 2:
+            return error("Usage: files delete <filename>")
+        fname = args[1]
+        f = DataFile.query.filter_by(computer_id=gw.id, filename=fname).first()
+        if not f:
+            return error(f"File '{fname}' not found on gateway.")
+        db.session.delete(f)
+        db.session.commit()
+        return success(f"Deleted '{fname}' from gateway.")
+
+    files = DataFile.query.filter_by(computer_id=gw.id).all()
+    if not files:
+        return info("No files on gateway.")
+
+    lines = [header("GATEWAY FILES"), ""]
+    lines.append(f"  {cyan('Filename'):<40} {cyan('Size'):<10} {cyan('Type')}")
+    lines.append(f"  {dim('-' * 50)}")
+    for f in files:
+        lines.append(
+            f"  {green(f.filename):<40} {dim(str(f.size) + ' GQ'):<10} {dim(f.file_type)}"
+        )
+    lines.append("")
+    lines.append(dim(f"  {len(files)} file(s). 'files delete <name>' to remove."))
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "files", cmd_files,
+    states=[SessionState.IN_GAME],
+    usage="files [delete <name>]",
+    description="List/delete gateway files",
+)
+
+
+def cmd_history(args, session):
+    """Show recent connection history."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    entries = (
+        ConnectionHistory.query
+        .filter_by(game_session_id=session.game_session_id)
+        .order_by(ConnectionHistory.id.desc())
+        .all()
+    )
+
+    if not entries:
+        return info("No connection history.")
+
+    lines = [header("CONNECTION HISTORY"), ""]
+    for i, h in enumerate(entries, 1):
+        lines.append(
+            f"  {bright_green(str(i) + '.')} {green(h.computer_name)} "
+            f"{dim('(' + h.ip + ')')}  {dim('tick ' + str(h.connected_at_tick))}"
+        )
+    lines.append("")
+    lines.append(dim(f"  {len(entries)} connection(s). Most recent first."))
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "history", cmd_history,
+    states=[SessionState.IN_GAME],
+    description="Show connection history",
+)
+
+
+def cmd_news(args, session):
+    """Quick-connect to Uplink News Network."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+    return cmd_connect([IP_NEWS_NETWORK], session)
+
+
+registry.register(
+    "news", cmd_news,
+    states=[SessionState.IN_GAME],
+    description="Quick-connect to news network",
 )

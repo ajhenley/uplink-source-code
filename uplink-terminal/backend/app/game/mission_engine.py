@@ -447,6 +447,7 @@ def check_mission_completion(game_session_id, mission_id):
 
     # Increase rating
     rating_gain = RATING_GAIN.get(mission.mission_type, 1)
+    old_rating = gs.uplink_rating
     gs.uplink_rating += rating_gain
 
     # Send completion email
@@ -464,12 +465,57 @@ def check_mission_completion(game_session_id, mission_id):
         game_tick_sent=gs.game_time_ticks,
     )
     db.session.add(email)
+
+    # Check rating milestone
+    _check_rating_milestone(gs, old_rating)
+
+    # Generate news article about completed contract
+    from .news_engine import generate_news_article
+    generate_news_article(
+        game_session_id,
+        f"Agent completes contract for {mission.employer}",
+        (
+            f"Agent completes contract for {mission.employer}.\n\n"
+            f"An Uplink-registered agent has successfully fulfilled a\n"
+            f"contract on behalf of {mission.employer}. Details of the\n"
+            f"operation remain classified."
+        ),
+        "Uplink Corporation",
+        gs.game_time_ticks,
+    )
+
     db.session.commit()
 
     return True, (
         f"Mission complete! Payment: {mission.payment} credits. "
         f"Rating +{rating_gain}."
     )
+
+
+def _check_rating_milestone(gs, old_rating):
+    """Send a promotion email if the player crossed a rating tier threshold."""
+    from .constants import RATING_UNLOCK_HINTS, RATING_NAMES, get_rating_name
+
+    for threshold in sorted(RATING_NAMES.keys()):
+        if old_rating < threshold <= gs.uplink_rating:
+            tier_name = get_rating_name(threshold)
+            hint = RATING_UNLOCK_HINTS.get(threshold, "")
+            body = (
+                f"Congratulations, agent!\n\n"
+                f"You have been promoted to {tier_name} "
+                f"(rating {gs.uplink_rating}).\n\n"
+            )
+            if hint:
+                body += f"{hint}\n\n"
+            body += "Keep up the excellent work.\n\n-- Uplink Corporation"
+            db.session.add(Email(
+                game_session_id=gs.id,
+                subject=f"Promotion: {tier_name}",
+                body=body,
+                from_addr="internal@intl.uplink.co.uk",
+                to_addr="agent@uplink.co.uk",
+                game_tick_sent=gs.game_time_ticks,
+            ))
 
 
 def _check_steal_file(gs, mission):

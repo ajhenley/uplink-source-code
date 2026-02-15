@@ -27,7 +27,7 @@ def tick():
     from ..models import GameSession, Connection, Computer
     from .tool_engine import tick_tools
     from .mission_engine import generate_missions, check_mission_expiry
-    from .constants import ADMIN_REVIEW_INTERVAL
+    from .constants import ADMIN_REVIEW_INTERVAL, NEWS_GENERATION_INTERVAL
 
     active_sessions = [
         ts for ts in sessions.values()
@@ -66,6 +66,11 @@ def tick():
         # --- Autosave (every ~500 ticks) ---
         if gs.game_time_ticks % 500 < gs.speed_multiplier:
             gs.updated_at = datetime.now(timezone.utc)
+
+        # --- Random news generation (every ~800 ticks) ---
+        if gs.game_time_ticks % NEWS_GENERATION_INTERVAL < gs.speed_multiplier:
+            from .news_engine import generate_random_news
+            generate_random_news(gs.id, gs.game_time_ticks)
 
         # --- Admin forensic review (every ~300 ticks) ---
         if gs.game_time_ticks % ADMIN_REVIEW_INTERVAL < gs.speed_multiplier:
@@ -257,10 +262,11 @@ def _admin_review(gs, ts):
     applies fines and criminal record increments based on severity,
     sends warning emails, and marks logs invisible to prevent double-punishment.
     """
-    from ..models import Computer, AccessLog, Email
+    from ..models import Computer, AccessLog, Email, SecuritySystem
     from .constants import (
         FINE_LOW, FINE_MEDIUM, FINE_HIGH,
         CRIMINAL_THRESHOLD_GAMEOVER, get_criminal_level_name,
+        SECURITY_MAX_LEVEL, SEC_MONITOR, SEC_PROXY,
     )
     from ..extensions import socketio
     from ..terminal.output import warning, error
@@ -298,6 +304,44 @@ def _admin_review(gs, ts):
         # Apply fine
         if fine > 0:
             gs.balance = max(0, gs.balance - fine)
+
+        # --- Reactive security hardening ---
+        existing_security = SecuritySystem.query.filter_by(computer_id=comp.id).all()
+        if existing_security:
+            # Increment all existing security levels by 1 (capped)
+            for sec in existing_security:
+                if sec.level < SECURITY_MAX_LEVEL:
+                    sec.level += 1
+                # Reset bypassed state (admins restore security)
+                sec.is_bypassed = False
+        else:
+            # No security existed — add a level-1 monitor
+            db.session.add(SecuritySystem(
+                computer_id=comp.id, security_type=SEC_MONITOR, level=1
+            ))
+
+        # Medium+ severity: add proxy if none exists
+        if severity in ("MEDIUM", "HIGH"):
+            has_proxy = any(s.security_type == SEC_PROXY for s in existing_security)
+            if not has_proxy:
+                db.session.add(SecuritySystem(
+                    computer_id=comp.id, security_type=SEC_PROXY, level=1
+                ))
+
+        # Generate breach news article
+        from .news_engine import generate_news_article
+        generate_news_article(
+            gs.id,
+            f"Security breach reported at {comp.company_name}",
+            (
+                f"Security breach reported at {comp.company_name}.\n\n"
+                f"Administrators at {comp.name} discovered evidence of\n"
+                f"unauthorized access. Security systems have been upgraded\n"
+                f"and all access credentials have been reset."
+            ),
+            f"{comp.company_name} Security",
+            gs.game_time_ticks,
+        )
 
         # Mark logs as invisible (prevents double-punishment)
         for log in suspicious_logs:
