@@ -19,6 +19,8 @@ def render_screen(computer, screen, session=None):
         SCREEN_BBS: _render_bbs,
         SCREEN_SHOP: _render_shop,
         SCREEN_HWSHOP: _render_hwshop,
+        SCREEN_BANKACCOUNTS: _render_bankaccounts,
+        SCREEN_BANKTRANSFER: _render_banktransfer,
     }
     renderer = renderers.get(screen.screen_type, _render_unknown)
     return renderer(computer, screen, session)
@@ -81,6 +83,7 @@ def _render_fileserver(computer, screen, session):
     lines = _screen_header(screen.title, screen.subtitle)
 
     files = computer.data_files
+    has_records = False
     if not files:
         lines.append(f"  {dim('No files found.')}")
     else:
@@ -92,11 +95,16 @@ def _render_fileserver(computer, screen, session):
                 flags += " [ENC]"
             if f.compressed:
                 flags += " [CMP]"
+            if f.file_type in ("ACADEMIC_RECORD", "CRIMINAL_RECORD"):
+                flags += " [REC]"
+                has_records = True
             lines.append(
                 f"  {green(f.filename):<40} {dim(str(f.size) + ' GQ'):<10} "
                 f"{dim(f.file_type)}{yellow(flags)}"
             )
     lines.append("")
+    if has_records:
+        lines.append(dim("  'view <filename>' to view record, 'edit <filename> <field> <value>' to edit"))
     lines.append(dim("  Type 'back' to return, 'dc' to disconnect"))
     lines.append("")
     return "\n".join(lines)
@@ -262,6 +270,52 @@ def _render_hwshop(computer, screen, session):
 
     lines.append("")
     lines.append(dim("  Type 'buy <#>' to purchase, 'back' to return, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_bankaccounts(computer, screen, session):
+    """Render BANKACCOUNTS screen showing bank accounts."""
+    from ..models import BankAccount
+
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    accounts = BankAccount.query.filter_by(computer_id=computer.id).all()
+    if not accounts:
+        lines.append(f"  {dim('No accounts found.')}")
+    else:
+        lines.append(f"  {cyan('Account #'):<16} {cyan('Holder'):<28} {cyan('Balance')}")
+        lines.append(f"  {dim('-' * 56)}")
+        for acc in accounts:
+            holder_display = acc.account_holder
+            if acc.is_player:
+                holder_display += " (YOU)"
+            lines.append(
+                f"  {green(acc.account_number):<16} "
+                f"{green(holder_display):<28} "
+                f"{yellow(f'{acc.balance:,}c')}"
+            )
+    lines.append("")
+    lines.append(dim("  'view <account#>' for detail, 'back' to return, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_banktransfer(computer, screen, session):
+    """Render BANKTRANSFER screen with usage instructions."""
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    lines.append(f"  {green('Fund Transfer System')}")
+    lines.append("")
+    lines.append(f"  {cyan('Usage:')}")
+    lines.append(f"  {dim('transfer <source_acc#> <target_ip> <target_acc#> <amount>')}")
+    lines.append("")
+    lines.append(f"  {cyan('Example:')}")
+    lines.append(f"  {dim('transfer 10042871 491.220.38.901 20031456 5000')}")
+    lines.append("")
+    lines.append(f"  {yellow('Note: All transfers are logged.')}")
+    lines.append("")
+    lines.append(dim("  'back' to return, 'dc' to disconnect"))
     lines.append("")
     return "\n".join(lines)
 

@@ -7,7 +7,7 @@ from ..extensions import db
 from ..models import (
     Company, VLocation, Computer, ComputerScreen,
     SecuritySystem, DataFile, AccessLog, PlayerLink, Connection,
-    Email, Software, Hardware,
+    Email, Software, Hardware, BankAccount,
 )
 from .constants import *
 
@@ -45,6 +45,21 @@ def _add_screen(computer_id, index, screen_type, title="", subtitle="",
     )
     db.session.add(s)
     return s
+
+
+def _create_bank_account(computer_id, holder, is_player=False):
+    """Create a bank account on a bank computer."""
+    acc_num = str(random.randint(10000000, 99999999))
+    balance = STARTING_BALANCE if is_player else random.randint(BANK_BALANCE_MIN, BANK_BALANCE_MAX)
+    acc = BankAccount(
+        computer_id=computer_id,
+        account_holder=holder,
+        account_number=acc_num,
+        balance=balance,
+        is_player=is_player,
+    )
+    db.session.add(acc)
+    return acc
 
 
 def generate_world(game_session_id):
@@ -200,6 +215,98 @@ def generate_world(game_session_id):
     _create_gov_system(gsid, IP_ACADEMIC_DB, "International Academic Database",
                        "Government", TRACE_SLOW, ACTION_DISCONNECT)
 
+    # --- Person Records on Government Systems ---
+    academic_comp = Computer.query.filter_by(game_session_id=gsid, ip=IP_ACADEMIC_DB).first()
+    if academic_comp:
+        npc_sample = random.sample(NPC_NAMES, min(10, len(NPC_NAMES)))
+        for npc_name in npc_sample:
+            subject = random.choice(ACADEMIC_SUBJECTS)
+            degree_class = random.choice(ACADEMIC_CLASSES)
+            university = random.choice([
+                "Cambridge", "Oxford", "MIT", "Stanford", "Harvard",
+                "Imperial College", "ETH Zurich", "Tokyo University",
+            ])
+            rec = DataFile(
+                computer_id=academic_comp.id,
+                filename=f"{npc_name.lower().replace(' ', '_')}.rec",
+                size=2,
+                file_type="ACADEMIC_RECORD",
+            )
+            rec.content = {
+                "name": npc_name,
+                "university": university,
+                "subject": subject,
+                "class": degree_class,
+            }
+            db.session.add(rec)
+
+    criminal_comp = Computer.query.filter_by(game_session_id=gsid, ip=IP_CRIMINAL_DB).first()
+    if criminal_comp:
+        npc_sample = random.sample(NPC_NAMES, min(10, len(NPC_NAMES)))
+        for npc_name in npc_sample:
+            conviction = random.choice(CRIMINAL_CONVICTIONS)
+            rec = DataFile(
+                computer_id=criminal_comp.id,
+                filename=f"{npc_name.lower().replace(' ', '_')}.rec",
+                size=2,
+                file_type="CRIMINAL_RECORD",
+            )
+            rec.content = {
+                "name": npc_name,
+                "convictions": conviction,
+            }
+            db.session.add(rec)
+
+    # --- Uplink International Bank ---
+    _add_location(gsid, IP_UPLINK_BANK, x=380, y=280)
+    uplink_bank = Computer(
+        game_session_id=gsid,
+        name="Uplink International Bank",
+        company_name="Uplink Corporation",
+        ip=IP_UPLINK_BANK,
+        computer_type=COMP_BANK,
+        trace_speed=TRACE_MEDIUM,
+        trace_action=ACTION_DISCONNECT_FINE,
+        is_externally_open=True,
+        admin_password=random.choice(PASSWORD_POOL),
+    )
+    db.session.add(uplink_bank)
+    db.session.flush()
+
+    _add_screen(uplink_bank.id, 0, SCREEN_PASSWORD,
+                title="Uplink International Bank",
+                subtitle="Authentication Required",
+                password=uplink_bank.admin_password,
+                next_screen=1)
+    _add_screen(uplink_bank.id, 1, SCREEN_MENU,
+                title="Uplink International Bank",
+                subtitle="Main Menu",
+                content={"options": [
+                    {"label": "View Accounts", "screen": 2},
+                    {"label": "Transfer Funds", "screen": 3},
+                    {"label": "Access Logs", "screen": 4},
+                ]})
+    _add_screen(uplink_bank.id, 2, SCREEN_BANKACCOUNTS,
+                title="Uplink International Bank",
+                subtitle="Account Listing")
+    _add_screen(uplink_bank.id, 3, SCREEN_BANKTRANSFER,
+                title="Uplink International Bank",
+                subtitle="Fund Transfer")
+    _add_screen(uplink_bank.id, 4, SCREEN_LOGSCREEN,
+                title="Uplink International Bank",
+                subtitle="Access Logs")
+
+    # Security
+    db.session.add(SecuritySystem(computer_id=uplink_bank.id, security_type=SEC_MONITOR, level=3))
+    db.session.add(SecuritySystem(computer_id=uplink_bank.id, security_type=SEC_PROXY, level=2))
+    db.session.add(SecuritySystem(computer_id=uplink_bank.id, security_type=SEC_FIREWALL, level=2))
+
+    # Player's bank account + NPC accounts
+    _create_bank_account(uplink_bank.id, "AGENT", is_player=True)
+    npc_bank_names = random.sample(NPC_NAMES, random.randint(5, 10))
+    for npc_name in npc_bank_names:
+        _create_bank_account(uplink_bank.id, npc_name)
+
     # --- Random Companies ---
     company_names = random.sample(COMPANY_NAMES, min(12, len(COMPANY_NAMES)))
     company_types = [TYPE_COMMERCIAL, TYPE_FINANCIAL, TYPE_COMMERCIAL, TYPE_ACADEMIC]
@@ -216,7 +323,7 @@ def generate_world(game_session_id):
             alignment=random.randint(-5, 5),
         )
         db.session.add(company)
-        _create_company_computers(gsid, name, size)
+        _create_company_computers(gsid, name, size, company_type=ctype)
 
     # --- Starting Links ---
     db.session.add(PlayerLink(
@@ -224,6 +331,9 @@ def generate_world(game_session_id):
     ))
     db.session.add(PlayerLink(
         game_session_id=gsid, ip=IP_INTERNIC, label="InterNIC",
+    ))
+    db.session.add(PlayerLink(
+        game_session_id=gsid, ip=IP_UPLINK_BANK, label="Uplink International Bank",
     ))
 
     # --- Connection object ---
@@ -327,8 +437,8 @@ def _create_gov_system(gsid, ip, name, company_name, trace_speed, trace_action):
         ))
 
 
-def _create_company_computers(gsid, company_name, size):
-    """Create PAS and ISM for a company."""
+def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMERCIAL):
+    """Create PAS and ISM for a company. Financial companies also get a bank."""
     pas_ip = _gen_ip()
     ism_ip = _gen_ip()
 
@@ -437,3 +547,68 @@ def _create_company_computers(gsid, company_name, size):
             file_type="DATA",
             encrypted=random.random() < 0.3,
         ))
+
+    # Bank computer for financial companies
+    if company_type == TYPE_FINANCIAL:
+        bank_ip = _gen_ip()
+        bank_pw = random.choice(PASSWORD_POOL)
+        _add_location(gsid, bank_ip)
+        bank = Computer(
+            game_session_id=gsid,
+            name=f"{company_name} Bank",
+            company_name=company_name,
+            ip=bank_ip,
+            computer_type=COMP_BANK,
+            trace_speed=TRACE_MEDIUM,
+            trace_action=ACTION_DISCONNECT_FINE,
+            is_externally_open=True,
+            admin_password=bank_pw,
+        )
+        db.session.add(bank)
+        db.session.flush()
+
+        _add_screen(bank.id, 0, SCREEN_PASSWORD,
+                    title=f"{company_name} Bank",
+                    subtitle="Authentication Required",
+                    password=bank_pw,
+                    next_screen=1)
+        _add_screen(bank.id, 1, SCREEN_MENU,
+                    title=f"{company_name} Bank",
+                    subtitle="Main Menu",
+                    content={"options": [
+                        {"label": "View Accounts", "screen": 2},
+                        {"label": "Transfer Funds", "screen": 3},
+                        {"label": "Access Logs", "screen": 4},
+                    ]})
+        _add_screen(bank.id, 2, SCREEN_BANKACCOUNTS,
+                    title=f"{company_name} Bank",
+                    subtitle="Account Listing")
+        _add_screen(bank.id, 3, SCREEN_BANKTRANSFER,
+                    title=f"{company_name} Bank",
+                    subtitle="Fund Transfer")
+        _add_screen(bank.id, 4, SCREEN_LOGSCREEN,
+                    title=f"{company_name} Bank",
+                    subtitle="Access Logs")
+
+        # Security scaled by size
+        if size > 1:
+            db.session.add(SecuritySystem(
+                computer_id=bank.id, security_type=SEC_MONITOR,
+                level=min(size // 3, 4),
+            ))
+        if size > 3:
+            db.session.add(SecuritySystem(
+                computer_id=bank.id, security_type=SEC_PROXY,
+                level=min(size // 4, 3),
+            ))
+        if size > 6:
+            db.session.add(SecuritySystem(
+                computer_id=bank.id, security_type=SEC_FIREWALL,
+                level=min(size // 5, 3),
+            ))
+
+        # NPC bank accounts
+        num_accounts = random.randint(4, 8)
+        npc_sample = random.sample(NPC_NAMES, min(num_accounts, len(NPC_NAMES)))
+        for npc_name in npc_sample:
+            _create_bank_account(bank.id, npc_name)

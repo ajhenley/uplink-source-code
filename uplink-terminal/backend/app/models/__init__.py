@@ -13,6 +13,7 @@ from .mission import Mission
 from .software import Software
 from .running_tool import RunningTool
 from .hardware import Hardware
+from .bank_account import BankAccount
 
 __all__ = [
     "UserAccount",
@@ -31,4 +32,5 @@ __all__ = [
     "Software",
     "RunningTool",
     "Hardware",
+    "BankAccount",
 ]

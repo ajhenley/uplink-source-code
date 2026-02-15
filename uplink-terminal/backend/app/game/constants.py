@@ -7,6 +7,7 @@ IP_INTERNIC = "458.615.48.651"
 IP_CRIMINAL_DB = "176.333.12.100"
 IP_SOCIAL_SECURITY = "187.242.55.203"
 IP_ACADEMIC_DB = "201.618.73.312"
+IP_UPLINK_BANK = "491.220.38.901"
 
 # Starting balance (credits)
 STARTING_BALANCE = 3000
@@ -45,6 +46,7 @@ COMP_PUBLIC_ACCESS = "PUBLICACCESSSERVER"
 COMP_INTERNAL = "INTERNALSERVICESMACHINE"
 COMP_MAINFRAME = "CENTRALMAINFRAME"
 COMP_GATEWAY = "GATEWAY"
+COMP_BANK = "BANKCOMPUTER"
 
 # Screen types
 SCREEN_MESSAGE = "MESSAGE"
@@ -82,6 +84,8 @@ FILE_NAMES = [
 SCREEN_BBS = "BBS"
 SCREEN_SHOP = "SHOP"
 SCREEN_HWSHOP = "HWSHOP"
+SCREEN_BANKACCOUNTS = "BANKACCOUNTS"
+SCREEN_BANKTRANSFER = "BANKTRANSFER"
 
 # Game speed labels
 SPEED_LABELS = {0: "Paused", 1: "Normal", 3: "Fast", 8: "MegaFast"}
@@ -90,6 +94,9 @@ VALID_SPEEDS = [0, 1, 3, 8]
 # Mission types
 MISSION_STEAL_FILE = "STEAL_FILE"
 MISSION_DESTROY_FILE = "DESTROY_FILE"
+MISSION_STEAL_MONEY = "STEAL_MONEY"
+MISSION_CHANGE_ACADEMIC = "CHANGE_ACADEMIC"
+MISSION_CHANGE_CRIMINAL = "CHANGE_CRIMINAL"
 
 # Mission statuses
 MISSION_AVAILABLE = "AVAILABLE"
@@ -149,6 +156,9 @@ SOFTWARE_CATALOG = [
 MISSION_PAYMENTS = {
     "STEAL_FILE": (900, 0.3),
     "DESTROY_FILE": (800, 0.3),
+    "STEAL_MONEY": (3000, 0.4),
+    "CHANGE_ACADEMIC": (1500, 0.3),
+    "CHANGE_CRIMINAL": (2500, 0.3),
 }
 
 # Uplink rating names
@@ -162,6 +172,9 @@ RATING_NAMES = {
 RATING_GAIN = {
     "STEAL_FILE": 3,
     "DESTROY_FILE": 3,
+    "STEAL_MONEY": 8,
+    "CHANGE_ACADEMIC": 5,
+    "CHANGE_CRIMINAL": 6,
 }
 
 # Tool name aliases (user-facing name → tool type)
@@ -233,6 +246,34 @@ FINE_HIGH = 750        # government systems (trace_action has ARREST)
 CRIMINAL_LEVEL_NAMES = {
     0: "Clean", 1: "Caution", 3: "Flagged", 6: "Wanted", 10: "Arrested",
 }
+
+
+# NPC name pool (for bank accounts and records)
+NPC_NAMES = [
+    "John Smith", "Sarah Connor", "David Chen", "Maria Garcia",
+    "James Wilson", "Emily Taylor", "Robert Brown", "Lisa Anderson",
+    "Michael Davis", "Jennifer Thomas", "William Jackson", "Patricia White",
+    "Richard Harris", "Elizabeth Martin", "Charles Thompson", "Margaret Robinson",
+    "Thomas Clark", "Susan Lewis", "Christopher Lee", "Karen Walker",
+]
+
+# Bank account balance ranges
+BANK_BALANCE_MIN = 5000
+BANK_BALANCE_MAX = 500000
+
+# Academic record constants
+ACADEMIC_SUBJECTS = [
+    "Computer Science", "Mathematics", "Physics", "Engineering",
+    "Chemistry", "Biology", "Economics", "Business Studies",
+    "Law", "Medicine",
+]
+ACADEMIC_CLASSES = ["1st", "2:1", "2:2", "3rd", "None"]
+
+# Criminal record constants
+CRIMINAL_CONVICTIONS = [
+    "Robbery", "High tech fraud", "Tax evasion",
+    "Embezzlement", "Forgery", "None",
+]
 
 
 def get_rating_name(rating):

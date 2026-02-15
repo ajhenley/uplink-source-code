@@ -905,3 +905,19 @@ registry.register(
     states=[SessionState.IN_GAME],
     description="Show criminal record status",
 )
+
+
+def cmd_balance(args, session):
+    """Show current credit balance."""
+    gs = db.session.get(GameSession, session.game_session_id)
+    if not gs:
+        return error("No active game session.")
+
+    return info(f"Balance: {gs.balance:,} credits.")
+
+
+registry.register(
+    "balance", cmd_balance,
+    states=[SessionState.IN_GAME],
+    description="Show credit balance",
+)

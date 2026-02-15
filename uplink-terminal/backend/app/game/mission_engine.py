@@ -4,7 +4,7 @@ import random
 
 from ..extensions import db
 from ..models import (
-    Mission, Email, GameSession, Computer, DataFile, PlayerLink,
+    Mission, Email, GameSession, Computer, DataFile, PlayerLink, BankAccount,
 )
 from .constants import *
 
@@ -34,75 +34,317 @@ def generate_missions(game_session_id, count=None):
         if files:
             viable_targets.append((ism, files))
 
-    if not viable_targets:
-        return
-
+    # Build pool of mission types based on player rating and available targets
     mission_types = [MISSION_STEAL_FILE, MISSION_DESTROY_FILE]
+
+    # Bank missions (need bank computers with accounts)
+    banks = Computer.query.filter_by(
+        game_session_id=game_session_id,
+        computer_type=COMP_BANK,
+    ).all()
+    viable_banks = []
+    for bank in banks:
+        accs = BankAccount.query.filter_by(computer_id=bank.id, is_player=False).all()
+        if accs:
+            viable_banks.append((bank, accs))
+
+    if viable_banks and gs.uplink_rating >= 5:
+        mission_types.append(MISSION_STEAL_MONEY)
+
+    # Record missions (need academic/criminal records on gov systems)
+    academic_comp = Computer.query.filter_by(
+        game_session_id=game_session_id, ip=IP_ACADEMIC_DB
+    ).first()
+    academic_records = []
+    if academic_comp:
+        academic_records = DataFile.query.filter_by(
+            computer_id=academic_comp.id, file_type="ACADEMIC_RECORD"
+        ).all()
+
+    criminal_comp = Computer.query.filter_by(
+        game_session_id=game_session_id, ip=IP_CRIMINAL_DB
+    ).first()
+    criminal_records = []
+    if criminal_comp:
+        criminal_records = DataFile.query.filter_by(
+            computer_id=criminal_comp.id, file_type="CRIMINAL_RECORD"
+        ).all()
+
+    if academic_records and gs.uplink_rating >= 3:
+        mission_types.append(MISSION_CHANGE_ACADEMIC)
+
+    if criminal_records and gs.uplink_rating >= 6:
+        mission_types.append(MISSION_CHANGE_CRIMINAL)
 
     for _ in range(count):
         mtype = random.choice(mission_types)
-        target_comp, target_files = random.choice(viable_targets)
-        target_file = random.choice(target_files)
 
-        # Determine payment with variance
-        base_pay, variance = MISSION_PAYMENTS.get(mtype, (800, 0.3))
-        payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+        # Ensure we can actually generate this mission type
+        if mtype in (MISSION_STEAL_FILE, MISSION_DESTROY_FILE) and not viable_targets:
+            mtype = random.choice([MISSION_STEAL_FILE, MISSION_DESTROY_FILE])
+            if not viable_targets:
+                continue
 
-        # Pick an employer (different company from target)
-        employer = target_comp.company_name
+        if mtype == MISSION_STEAL_MONEY and not viable_banks:
+            continue
+        if mtype == MISSION_CHANGE_ACADEMIC and not academic_records:
+            continue
+        if mtype == MISSION_CHANGE_CRIMINAL and not criminal_records:
+            continue
 
-        # Generate mission text
-        if mtype == MISSION_STEAL_FILE:
-            description = f"Steal file from {employer}"
-            details = (
-                f"We need a copy of the file '{target_file.filename}' "
-                f"from the {employer} Internal Services Machine."
-            )
-            full_details = (
-                f"Target: {employer} Internal Services Machine\n"
-                f"IP: {target_comp.ip}\n"
-                f"File: {target_file.filename}\n\n"
-                f"Copy the file '{target_file.filename}' from the target system.\n"
-                f"You will need to bypass the login, locate the file server,\n"
-                f"and use a File Copier to download the file.\n\n"
-                f"Once you have the file, reply to the mission email to confirm."
-            )
-        else:  # DESTROY_FILE
-            description = f"Destroy file on {employer}"
-            details = (
-                f"We need the file '{target_file.filename}' deleted "
-                f"from the {employer} Internal Services Machine."
-            )
-            full_details = (
-                f"Target: {employer} Internal Services Machine\n"
-                f"IP: {target_comp.ip}\n"
-                f"File: {target_file.filename}\n\n"
-                f"Delete the file '{target_file.filename}' from the target system.\n"
-                f"You will need to bypass the login, locate the file server,\n"
-                f"and use a File Deleter to remove the file.\n\n"
-                f"Once the file is destroyed, reply to the mission email to confirm."
-            )
+        if mtype == MISSION_STEAL_MONEY:
+            mission = _generate_steal_money_mission(gs, viable_banks)
+        elif mtype == MISSION_CHANGE_ACADEMIC:
+            mission = _generate_change_academic_mission(gs, academic_comp, academic_records)
+        elif mtype == MISSION_CHANGE_CRIMINAL:
+            mission = _generate_change_criminal_mission(gs, criminal_comp, criminal_records)
+        else:
+            mission = _generate_file_mission(gs, mtype, viable_targets)
 
-        mission = Mission(
-            game_session_id=game_session_id,
-            mission_type=mtype,
-            employer=employer,
-            contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
-            description=description,
-            details=details,
-            full_details=full_details,
-            target_ip=target_comp.ip,
-            target_filename=target_file.filename,
-            target_data={"computer_name": target_comp.name},
-            payment=payment,
-            difficulty=1,
-            min_rating=0,
-            status=MISSION_AVAILABLE,
-            created_at_tick=gs.game_time_ticks,
-        )
-        db.session.add(mission)
+        if mission:
+            db.session.add(mission)
 
     db.session.commit()
+
+
+def _generate_file_mission(gs, mtype, viable_targets):
+    """Generate a STEAL_FILE or DESTROY_FILE mission."""
+    target_comp, target_files = random.choice(viable_targets)
+    target_file = random.choice(target_files)
+
+    base_pay, variance = MISSION_PAYMENTS.get(mtype, (800, 0.3))
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+    employer = target_comp.company_name
+
+    if mtype == MISSION_STEAL_FILE:
+        description = f"Steal file from {employer}"
+        details = (
+            f"We need a copy of the file '{target_file.filename}' "
+            f"from the {employer} Internal Services Machine."
+        )
+        full_details = (
+            f"Target: {employer} Internal Services Machine\n"
+            f"IP: {target_comp.ip}\n"
+            f"File: {target_file.filename}\n\n"
+            f"Copy the file '{target_file.filename}' from the target system.\n"
+            f"You will need to bypass the login, locate the file server,\n"
+            f"and use a File Copier to download the file.\n\n"
+            f"Once you have the file, reply to the mission email to confirm."
+        )
+    else:
+        description = f"Destroy file on {employer}"
+        details = (
+            f"We need the file '{target_file.filename}' deleted "
+            f"from the {employer} Internal Services Machine."
+        )
+        full_details = (
+            f"Target: {employer} Internal Services Machine\n"
+            f"IP: {target_comp.ip}\n"
+            f"File: {target_file.filename}\n\n"
+            f"Delete the file '{target_file.filename}' from the target system.\n"
+            f"You will need to bypass the login, locate the file server,\n"
+            f"and use a File Deleter to remove the file.\n\n"
+            f"Once the file is destroyed, reply to the mission email to confirm."
+        )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=mtype,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=target_comp.ip,
+        target_filename=target_file.filename,
+        target_data={"computer_name": target_comp.name},
+        payment=payment,
+        difficulty=1,
+        min_rating=0,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _generate_steal_money_mission(gs, viable_banks):
+    """Generate a STEAL_MONEY mission."""
+    src_bank, src_accs = random.choice(viable_banks)
+    src_acc = random.choice(src_accs)
+
+    # Pick a different bank as target (or same bank, different account)
+    tgt_bank, tgt_accs = random.choice(viable_banks)
+    tgt_acc = random.choice(tgt_accs)
+    # Avoid same account
+    if src_acc.id == tgt_acc.id:
+        for a in tgt_accs:
+            if a.id != src_acc.id:
+                tgt_acc = a
+                break
+
+    amount = random.randint(2000, min(50000, src_acc.balance // 2))
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_STEAL_MONEY]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    employer = random.choice(COMPANY_NAMES)
+    description = f"Transfer funds from {src_bank.company_name} Bank"
+    details = (
+        f"Transfer {amount:,}c from account {src_acc.account_number} "
+        f"to account {tgt_acc.account_number}."
+    )
+    full_details = (
+        f"Source Bank: {src_bank.name}\n"
+        f"Source IP: {src_bank.ip}\n"
+        f"Source Account: {src_acc.account_number} ({src_acc.account_holder})\n\n"
+        f"Target Bank: {tgt_bank.name}\n"
+        f"Target IP: {tgt_bank.ip}\n"
+        f"Target Account: {tgt_acc.account_number}\n\n"
+        f"Transfer exactly {amount:,} credits from the source account to the\n"
+        f"target account. You will need to hack the source bank, navigate\n"
+        f"to the transfer screen, and initiate the transfer.\n\n"
+        f"Once the transfer is complete, reply to the mission email to confirm."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_STEAL_MONEY,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=src_bank.ip,
+        target_filename=None,
+        target_data={
+            "source_bank_ip": src_bank.ip,
+            "source_account": src_acc.account_number,
+            "target_bank_ip": tgt_bank.ip,
+            "target_account": tgt_acc.account_number,
+            "amount": amount,
+            "original_source_balance": src_acc.balance,
+            "original_target_balance": tgt_acc.balance,
+        },
+        payment=payment,
+        difficulty=3,
+        min_rating=5,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _generate_change_academic_mission(gs, academic_comp, records):
+    """Generate a CHANGE_ACADEMIC mission."""
+    rec = random.choice(records)
+    content = rec.content
+    current_class = content.get("class", "None")
+
+    # Pick a new class different from current
+    new_class = random.choice([c for c in ACADEMIC_CLASSES if c != current_class])
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_CHANGE_ACADEMIC]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    person_name = content.get("name", "Unknown")
+    employer = random.choice(COMPANY_NAMES)
+    description = f"Change academic record for {person_name}"
+    details = (
+        f"Change {person_name}'s degree classification to '{new_class}' "
+        f"on the Academic Database."
+    )
+    full_details = (
+        f"Target: International Academic Database\n"
+        f"IP: {IP_ACADEMIC_DB}\n"
+        f"Person: {person_name}\n"
+        f"File: {rec.filename}\n\n"
+        f"Change the 'class' field to '{new_class}' in the record for {person_name}.\n"
+        f"You will need to hack the Academic Database, locate the record,\n"
+        f"and use 'edit {rec.filename} class {new_class}' to modify it.\n\n"
+        f"Once the record is changed, reply to the mission email to confirm."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_CHANGE_ACADEMIC,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=IP_ACADEMIC_DB,
+        target_filename=rec.filename,
+        target_data={
+            "person_name": person_name,
+            "field": "class",
+            "required_value": new_class,
+        },
+        payment=payment,
+        difficulty=2,
+        min_rating=3,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _generate_change_criminal_mission(gs, criminal_comp, records):
+    """Generate a CHANGE_CRIMINAL mission."""
+    rec = random.choice(records)
+    content = rec.content
+    current_convictions = content.get("convictions", "None")
+
+    # Decide whether to add or remove a conviction
+    if current_convictions == "None":
+        new_convictions = random.choice([c for c in CRIMINAL_CONVICTIONS if c != "None"])
+    else:
+        # 50/50 chance to clear or change
+        if random.random() < 0.5:
+            new_convictions = "None"
+        else:
+            new_convictions = random.choice(
+                [c for c in CRIMINAL_CONVICTIONS if c != current_convictions]
+            )
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_CHANGE_CRIMINAL]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    person_name = content.get("name", "Unknown")
+    employer = random.choice(COMPANY_NAMES)
+    description = f"Change criminal record for {person_name}"
+    details = (
+        f"Change {person_name}'s convictions to '{new_convictions}' "
+        f"on the Criminal Database."
+    )
+    full_details = (
+        f"Target: Global Criminal Database\n"
+        f"IP: {IP_CRIMINAL_DB}\n"
+        f"Person: {person_name}\n"
+        f"File: {rec.filename}\n\n"
+        f"Change the 'convictions' field to '{new_convictions}' in the record.\n"
+        f"You will need to hack the Criminal Database, locate the record,\n"
+        f"and use 'edit {rec.filename} convictions {new_convictions}' to modify it.\n\n"
+        f"Once the record is changed, reply to the mission email to confirm."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_CHANGE_CRIMINAL,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=IP_CRIMINAL_DB,
+        target_filename=rec.filename,
+        target_data={
+            "person_name": person_name,
+            "field": "convictions",
+            "required_value": new_convictions,
+        },
+        payment=payment,
+        difficulty=3,
+        min_rating=6,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
 
 
 def accept_mission(game_session_id, mission_id):
@@ -186,6 +428,12 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_steal_file(gs, mission)
     elif mission.mission_type == MISSION_DESTROY_FILE:
         ok, msg = _check_destroy_file(gs, mission)
+    elif mission.mission_type == MISSION_STEAL_MONEY:
+        ok, msg = _check_steal_money(gs, mission)
+    elif mission.mission_type == MISSION_CHANGE_ACADEMIC:
+        ok, msg = _check_change_academic(gs, mission)
+    elif mission.mission_type == MISSION_CHANGE_CRIMINAL:
+        ok, msg = _check_change_criminal(gs, mission)
     else:
         return False, "Unknown mission type."
 
@@ -260,6 +508,119 @@ def _check_destroy_file(gs, mission):
             f"Use File Deleter to remove it."
         )
     return True, "File destroyed."
+
+
+def _check_steal_money(gs, mission):
+    """Verify the money transfer has occurred."""
+    data = mission.target_data
+    src_bank_ip = data.get("source_bank_ip")
+    src_acc_num = data.get("source_account")
+    tgt_bank_ip = data.get("target_bank_ip")
+    tgt_acc_num = data.get("target_account")
+    amount = data.get("amount", 0)
+    orig_src_balance = data.get("original_source_balance", 0)
+    orig_tgt_balance = data.get("original_target_balance", 0)
+
+    # Find source bank and account
+    src_bank = Computer.query.filter_by(
+        game_session_id=gs.id, ip=src_bank_ip
+    ).first()
+    if not src_bank:
+        return False, "Source bank not found."
+
+    src_acc = BankAccount.query.filter_by(
+        computer_id=src_bank.id, account_number=src_acc_num
+    ).first()
+    if not src_acc:
+        return False, "Source account not found."
+
+    # Find target bank and account
+    tgt_bank = Computer.query.filter_by(
+        game_session_id=gs.id, ip=tgt_bank_ip
+    ).first()
+    if not tgt_bank:
+        return False, "Target bank not found."
+
+    tgt_acc = BankAccount.query.filter_by(
+        computer_id=tgt_bank.id, account_number=tgt_acc_num
+    ).first()
+    if not tgt_acc:
+        return False, "Target account not found."
+
+    # Check balances changed by at least the required amount
+    src_decreased = orig_src_balance - src_acc.balance
+    tgt_increased = tgt_acc.balance - orig_tgt_balance
+
+    if src_decreased < amount:
+        return False, (
+            f"Source account balance hasn't decreased enough. "
+            f"Need to transfer {amount:,}c from account {src_acc_num}."
+        )
+    if tgt_increased < amount:
+        return False, (
+            f"Target account balance hasn't increased enough. "
+            f"Need to transfer {amount:,}c to account {tgt_acc_num}."
+        )
+
+    return True, "Transfer verified."
+
+
+def _check_change_academic(gs, mission):
+    """Verify the academic record was changed correctly."""
+    data = mission.target_data
+    required_value = data.get("required_value")
+    field = data.get("field", "class")
+
+    target_comp = Computer.query.filter_by(
+        game_session_id=gs.id, ip=mission.target_ip
+    ).first()
+    if not target_comp:
+        return False, "Target computer not found."
+
+    rec = DataFile.query.filter_by(
+        computer_id=target_comp.id, filename=mission.target_filename
+    ).first()
+    if not rec:
+        return False, f"Record '{mission.target_filename}' not found."
+
+    content = rec.content
+    current_value = content.get(field)
+    if current_value != required_value:
+        return False, (
+            f"Record field '{field}' is '{current_value}', needs to be '{required_value}'. "
+            f"Use 'edit {mission.target_filename} {field} {required_value}' on the target system."
+        )
+
+    return True, "Record updated correctly."
+
+
+def _check_change_criminal(gs, mission):
+    """Verify the criminal record was changed correctly."""
+    data = mission.target_data
+    required_value = data.get("required_value")
+    field = data.get("field", "convictions")
+
+    target_comp = Computer.query.filter_by(
+        game_session_id=gs.id, ip=mission.target_ip
+    ).first()
+    if not target_comp:
+        return False, "Target computer not found."
+
+    rec = DataFile.query.filter_by(
+        computer_id=target_comp.id, filename=mission.target_filename
+    ).first()
+    if not rec:
+        return False, f"Record '{mission.target_filename}' not found."
+
+    content = rec.content
+    current_value = content.get(field)
+    if current_value != required_value:
+        return False, (
+            f"Record field '{field}' is '{current_value}', needs to be '{required_value}'. "
+            f"Use 'edit {mission.target_filename} {field} {required_value}' on the target system."
+        )
+
+    return True, "Record updated correctly."
 
 
 def check_mission_expiry(game_session_id):

@@ -1,7 +1,7 @@
 """Handle screen-contextual input when connected to a computer."""
 
 from ..extensions import db
-from ..models import Computer, PlayerLink, VLocation, Mission, Software, GameSession, Hardware
+from ..models import Computer, PlayerLink, VLocation, Mission, Software, GameSession, Hardware, BankAccount, AccessLog, DataFile
 from ..terminal.output import success, error, info, warning, dim, green, bright_green, cyan, yellow
 from .constants import *
 from .screen_renderer import render_screen
@@ -36,6 +36,8 @@ def handle_screen_input(text, session):
         SCREEN_BBS: _handle_bbs,
         SCREEN_SHOP: _handle_shop,
         SCREEN_HWSHOP: _handle_hwshop,
+        SCREEN_BANKACCOUNTS: _handle_bankaccounts,
+        SCREEN_BANKTRANSFER: _handle_banktransfer,
     }
 
     handler = handlers.get(screen.screen_type)
@@ -126,16 +128,75 @@ def _handle_menu(text, computer, screen, session):
 
 
 def _handle_fileserver(text, computer, screen, session):
-    """FILESERVER: 'ls'/'dir' lists files, 'back' returns."""
-    cmd = text.strip().lower()
+    """FILESERVER: 'ls'/'dir' lists files, 'view'/'edit' for records, 'back' returns."""
+    parts = text.strip().split(None, 2)
+    cmd = parts[0].lower() if parts else ""
+
     if cmd in ("ls", "dir"):
         return render_screen(computer, screen, session)
     if cmd == "back":
-        # Return to menu
         for s in computer.screens:
             if s.screen_type == SCREEN_MENU:
                 return _navigate_to(session, computer, s.screen_index)
         return _navigate_to(session, computer, 0)
+
+    if cmd == "view":
+        if len(parts) < 2:
+            return error("Usage: view <filename>")
+        fname = parts[1]
+        f = DataFile.query.filter_by(computer_id=computer.id, filename=fname).first()
+        if not f:
+            return error(f"File '{fname}' not found.")
+        if f.file_type not in ("ACADEMIC_RECORD", "CRIMINAL_RECORD"):
+            return error(f"'{fname}' is not a record file. Use file_copier instead.")
+        content = f.content
+        lines = [
+            "",
+            f"  {bright_green(f'Record: {fname}')}",
+            f"  {dim('=' * 40)}",
+        ]
+        for key, val in content.items():
+            lines.append(f"  {cyan(key + ':')} {green(str(val))}")
+        lines.append("")
+        lines.append(dim(f"  'edit {fname} <field> <value>' to modify"))
+        lines.append("")
+        return "\n".join(lines)
+
+    if cmd == "edit":
+        if len(parts) < 3:
+            return error("Usage: edit <filename> <field> <value>")
+        # Re-parse to extract filename, field, value
+        edit_parts = text.strip().split(None, 3)
+        if len(edit_parts) < 4:
+            return error("Usage: edit <filename> <field> <value>")
+        _, fname, field, new_value = edit_parts
+        f = DataFile.query.filter_by(computer_id=computer.id, filename=fname).first()
+        if not f:
+            return error(f"File '{fname}' not found.")
+        if f.file_type not in ("ACADEMIC_RECORD", "CRIMINAL_RECORD"):
+            return error(f"'{fname}' is not a record file.")
+        content = f.content
+        if field not in content:
+            valid_fields = ", ".join(content.keys())
+            return error(f"Unknown field '{field}'. Valid fields: {valid_fields}")
+        old_value = content[field]
+        content[field] = new_value
+        f.content = content
+        # Create suspicious access log
+        gs = db.session.get(GameSession, session.game_session_id)
+        if gs:
+            log = AccessLog(
+                computer_id=computer.id,
+                game_tick=gs.game_time_ticks,
+                from_ip=gs.gateway_ip or "unknown",
+                from_name=session.username or "unknown",
+                action=f"Modified {fname}: {field}",
+                suspicious=True,
+            )
+            db.session.add(log)
+        db.session.commit()
+        return success(f"Record updated: {field} changed from '{old_value}' to '{new_value}'.")
+
     return None
 
 
@@ -360,6 +421,128 @@ def _handle_shop(text, computer, screen, session):
         db.session.commit()
 
         return success(f"Purchased {name} v{ver} for {cost} credits. Balance: {gs.balance}c.")
+
+    return None
+
+
+def _handle_bankaccounts(text, computer, screen, session):
+    """BANKACCOUNTS: 'view <#>' shows account detail, 'back' returns."""
+    parts = text.strip().split(None, 1)
+    cmd = parts[0].lower() if parts else ""
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    if cmd == "back":
+        for s in computer.screens:
+            if s.screen_type == SCREEN_MENU:
+                return _navigate_to(session, computer, s.screen_index)
+        return _navigate_to(session, computer, 0)
+
+    if cmd == "view":
+        if not arg:
+            return error("Usage: view <account_number>")
+        acc = BankAccount.query.filter_by(
+            computer_id=computer.id, account_number=arg
+        ).first()
+        if not acc:
+            return error(f"Account '{arg}' not found on this bank.")
+        lines = [
+            "",
+            f"  {bright_green('Account Detail')}",
+            f"  {dim('=' * 40)}",
+            f"  {cyan('Account #:')}  {green(acc.account_number)}",
+            f"  {cyan('Holder:')}     {green(acc.account_holder)}",
+            f"  {cyan('Balance:')}    {yellow(f'{acc.balance:,} credits')}",
+            "",
+        ]
+        return "\n".join(lines)
+
+    return None
+
+
+def _handle_banktransfer(text, computer, screen, session):
+    """BANKTRANSFER: 'transfer <src> <ip> <tgt> <amt>' executes transfer."""
+    parts = text.strip().split()
+    cmd = parts[0].lower() if parts else ""
+
+    if cmd == "back":
+        for s in computer.screens:
+            if s.screen_type == SCREEN_MENU:
+                return _navigate_to(session, computer, s.screen_index)
+        return _navigate_to(session, computer, 0)
+
+    if cmd == "transfer":
+        if len(parts) < 5:
+            return error("Usage: transfer <source_acc#> <target_ip> <target_acc#> <amount>")
+
+        src_acc_num = parts[1]
+        target_ip = parts[2]
+        tgt_acc_num = parts[3]
+        try:
+            amount = int(parts[4])
+        except ValueError:
+            return error("Amount must be a number.")
+
+        if amount <= 0:
+            return error("Amount must be positive.")
+
+        # Find source account on this bank
+        src_acc = BankAccount.query.filter_by(
+            computer_id=computer.id, account_number=src_acc_num
+        ).first()
+        if not src_acc:
+            return error(f"Source account '{src_acc_num}' not found on this bank.")
+        if src_acc.balance < amount:
+            return error(f"Insufficient funds. Account balance: {src_acc.balance:,}c.")
+
+        # Find target bank computer
+        target_comp = Computer.query.filter_by(
+            game_session_id=session.game_session_id, ip=target_ip
+        ).first()
+        if not target_comp:
+            return error(f"No system found at {target_ip}.")
+        if target_comp.computer_type != COMP_BANK:
+            return error(f"{target_ip} is not a bank computer.")
+
+        # Find target account
+        tgt_acc = BankAccount.query.filter_by(
+            computer_id=target_comp.id, account_number=tgt_acc_num
+        ).first()
+        if not tgt_acc:
+            return error(f"Target account '{tgt_acc_num}' not found at {target_ip}.")
+
+        # Execute transfer
+        src_acc.balance -= amount
+        tgt_acc.balance += amount
+
+        # Create suspicious access logs on both banks
+        gs = db.session.get(GameSession, session.game_session_id)
+        if gs:
+            # Log on source bank
+            log_src = AccessLog(
+                computer_id=computer.id,
+                game_tick=gs.game_time_ticks,
+                from_ip=gs.gateway_ip or "unknown",
+                from_name=session.username or "unknown",
+                action=f"Transfer {amount:,}c from {src_acc_num} to {tgt_acc_num}@{target_ip}",
+                suspicious=True,
+            )
+            db.session.add(log_src)
+            # Log on target bank
+            log_tgt = AccessLog(
+                computer_id=target_comp.id,
+                game_tick=gs.game_time_ticks,
+                from_ip=gs.gateway_ip or "unknown",
+                from_name=session.username or "unknown",
+                action=f"Transfer {amount:,}c received from {src_acc_num}@{computer.ip}",
+                suspicious=True,
+            )
+            db.session.add(log_tgt)
+
+        db.session.commit()
+        return success(
+            f"Transferred {amount:,} credits from {src_acc_num} to {tgt_acc_num}@{target_ip}.\n"
+            f"  Source balance: {src_acc.balance:,}c | Target balance: {tgt_acc.balance:,}c"
+        )
 
     return None
 
