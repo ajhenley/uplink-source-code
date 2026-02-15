@@ -92,6 +92,7 @@ def generate_missions(game_session_id, count=None):
 
     if viable_lan_targets:
         mission_types.append(MISSION_LAN_FILE)
+        mission_types.append(MISSION_LAN_DESTROY)
 
     for _ in range(count):
         mtype = random.choice(mission_types)
@@ -110,8 +111,12 @@ def generate_missions(game_session_id, count=None):
             continue
         if mtype == MISSION_LAN_FILE and not viable_lan_targets:
             continue
+        if mtype == MISSION_LAN_DESTROY and not viable_lan_targets:
+            continue
 
-        if mtype == MISSION_LAN_FILE:
+        if mtype == MISSION_LAN_DESTROY:
+            mission = _generate_lan_destroy_mission(gs, viable_lan_targets)
+        elif mtype == MISSION_LAN_FILE:
             mission = _generate_lan_file_mission(gs, viable_lan_targets)
         elif mtype == MISSION_STEAL_MONEY:
             mission = _generate_steal_money_mission(gs, viable_banks)
@@ -457,6 +462,8 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_change_criminal(gs, mission)
     elif mission.mission_type == MISSION_LAN_FILE:
         ok, msg = _check_lan_file(gs, mission)
+    elif mission.mission_type == MISSION_LAN_DESTROY:
+        ok, msg = _check_lan_destroy(gs, mission)
     else:
         return False, "Unknown mission type."
 
@@ -765,6 +772,90 @@ def _check_lan_file(gs, mission):
             f"Navigate the LAN at {mission.target_ip} and download it."
         )
     return True, "File found."
+
+
+def _generate_lan_destroy_mission(gs, viable_lan_targets):
+    """Generate a LAN_DESTROY mission — delete a file from a company's LAN."""
+    target_comp, lan_file_nodes = random.choice(viable_lan_targets)
+    target_node = random.choice(lan_file_nodes)
+    files = target_node.content.get("files", [])
+    if not files:
+        return None
+    target_file = random.choice(files)
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_LAN_DESTROY]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+    employer = random.choice(COMPANY_NAMES)
+
+    description = f"Destroy LAN file on {target_comp.company_name}"
+    details = (
+        f"Delete '{target_file['name']}' from the {target_comp.company_name} "
+        f"internal LAN network."
+    )
+    full_details = (
+        f"Target: {target_comp.name}\n"
+        f"IP: {target_comp.ip}\n"
+        f"File: {target_file['name']}\n"
+        f"Location: LAN {target_node.node_type} ({target_node.label})\n\n"
+        f"Connect to the ISM, navigate to the Local Area Network,\n"
+        f"and locate the {target_node.node_type.lower().replace('_', ' ')}.\n"
+        f"Delete the target file using 'delete {target_file['name']}'.\n\n"
+        f"WARNING: This LAN has a SysAdmin AI that will hunt you\n"
+        f"if it detects your presence. Move quickly and consider\n"
+        f"using the Log Server to cover your tracks.\n\n"
+        f"A Bypasser tool is required to hack LAN security nodes.\n\n"
+        f"Once the file is destroyed, reply to the mission email."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_LAN_DESTROY,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=target_comp.ip,
+        target_filename=target_file["name"],
+        target_data={
+            "computer_name": target_comp.name,
+            "lan_node_index": target_node.node_index,
+            "filename": target_file["name"],
+        },
+        payment=payment,
+        difficulty=4,
+        min_rating=8,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _check_lan_destroy(gs, mission):
+    """Verify the target file no longer exists in the LAN node's content."""
+    target_comp = Computer.query.filter_by(
+        game_session_id=gs.id, ip=mission.target_ip
+    ).first()
+    if not target_comp:
+        return False, "Target computer not found."
+
+    target_node_idx = mission.target_data.get("lan_node_index")
+    target_filename = mission.target_data.get("filename", mission.target_filename)
+
+    node = LanNode.query.filter_by(
+        computer_id=target_comp.id, node_index=target_node_idx
+    ).first()
+    if not node:
+        return False, "Target LAN node not found."
+
+    files = node.content.get("files", [])
+    for f in files:
+        if f["name"] == target_filename:
+            return False, (
+                f"File '{target_filename}' still exists on {node.label}. "
+                f"Navigate the LAN and use 'delete {target_filename}' to remove it."
+            )
+
+    return True, "File destroyed."
 
 
 def check_mission_expiry(game_session_id):

@@ -102,6 +102,7 @@ MISSION_STEAL_MONEY = "STEAL_MONEY"
 MISSION_CHANGE_ACADEMIC = "CHANGE_ACADEMIC"
 MISSION_CHANGE_CRIMINAL = "CHANGE_CRIMINAL"
 MISSION_LAN_FILE = "LAN_FILE"
+MISSION_LAN_DESTROY = "LAN_DESTROY"
 
 # Mission statuses
 MISSION_AVAILABLE = "AVAILABLE"
@@ -227,6 +228,7 @@ MISSION_PAYMENTS = {
     "CHANGE_ACADEMIC": (1500, 0.3),
     "CHANGE_CRIMINAL": (2500, 0.3),
     "LAN_FILE": (2500, 0.3),
+    "LAN_DESTROY": (2200, 0.3),
 }
 
 # Uplink rating names
@@ -244,6 +246,7 @@ RATING_GAIN = {
     "CHANGE_ACADEMIC": 5,
     "CHANGE_CRIMINAL": 6,
     "LAN_FILE": 7,
+    "LAN_DESTROY": 7,
 }
 
 # Tool name aliases (user-facing name → tool type)
@@ -399,6 +402,7 @@ LAN_TERMINAL = "TERMINAL"
 LAN_LOCK = "LOCK"
 LAN_FILE_SERVER = "FILE_SERVER"
 LAN_MAINFRAME = "MAINFRAME"
+LAN_LOG_SERVER = "LOG_SERVER"
 
 LAN_MIN_COMPANY_SIZE = 8
 LAN_MAX_COMPANIES = 4
@@ -418,7 +422,22 @@ LAN_NODE_CHARS = {
     LAN_LOCK: "L",
     LAN_FILE_SERVER: "F",
     LAN_MAINFRAME: "M",
+    LAN_LOG_SERVER: "S",
 }
+
+# SysAdmin AI states
+SYSADMIN_ASLEEP = 0
+SYSADMIN_CURIOUS = 1
+SYSADMIN_SEARCHING = 2
+SYSADMIN_FOUNDYOU = 3
+
+# Nodes that wake the sysadmin when the player interacts
+SYSADMIN_SENSITIVE_NODES = {LAN_FILE_SERVER, LAN_MAINFRAME, LAN_LOG_SERVER}
+
+# Timing (in game ticks at 5Hz)
+SYSADMIN_CURIOUS_TICKS = 50      # ~10s at 1x before searching
+SYSADMIN_SEARCH_STEP_TICKS = 25  # ~5s per node step
+SYSADMIN_TICK_INTERVAL = 5       # check every 5 ticks
 
 
 def get_rating_name(rating):

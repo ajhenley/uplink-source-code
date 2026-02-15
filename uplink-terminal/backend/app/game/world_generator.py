@@ -689,12 +689,12 @@ def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMER
 def _create_lan(computer_id, company_name, size):
     """Generate a LAN topology for a company ISM.
 
-    Creates 5-9 nodes in a tree-like graph placed on a 3-row x 4-col grid.
+    Creates 6-10 nodes in a tree-like graph placed on a 4-row x 4-col grid.
     Node 0 = ROUTER (always discovered, unlocked).
     """
     # Determine node count based on company size
-    num_nodes = min(5 + (size - LAN_MIN_COMPANY_SIZE), 9)
-    num_nodes = max(num_nodes, 5)
+    num_nodes = min(6 + (size - LAN_MIN_COMPANY_SIZE), 10)
+    num_nodes = max(num_nodes, 6)
 
     # Build node list: index, type, label, row, col, security_level
     nodes = []
@@ -708,14 +708,14 @@ def _create_lan(computer_id, company_name, size):
 
     # Assign remaining node types
     remaining_types = []
-    # 1-3 terminals
-    num_terminals = min(random.randint(1, 3), num_nodes - 4)
+    # 1-3 terminals (leave room for 1 lock + 3 back nodes)
+    num_terminals = min(random.randint(1, 3), num_nodes - 5)
     num_terminals = max(num_terminals, 1)
     for i in range(num_terminals):
         remaining_types.append((LAN_TERMINAL, f"Terminal {i + 1}", random.choice([0, 0, 1])))
 
-    # 1-2 locks
-    num_locks = min(random.randint(1, 2), num_nodes - len(remaining_types) - 3)
+    # 1-2 locks (leave room for 3 back nodes: FILE_SERVER + MAINFRAME + LOG_SERVER)
+    num_locks = min(random.randint(1, 2), num_nodes - len(remaining_types) - 4)
     num_locks = max(num_locks, 1)
     for i in range(num_locks):
         remaining_types.append((LAN_LOCK, f"Lock {i + 1}", random.randint(1, min(3, size // 3))))
@@ -726,6 +726,9 @@ def _create_lan(computer_id, company_name, size):
     # 1 mainframe
     remaining_types.append((LAN_MAINFRAME, "Mainframe", random.randint(2, 3)))
 
+    # 1 log server
+    remaining_types.append((LAN_LOG_SERVER, "Log Server", random.randint(1, 2)))
+
     # Pad with extra terminals if needed
     while len(remaining_types) < num_nodes - 1:
         idx = len([t for t in remaining_types if t[0] == LAN_TERMINAL]) + 1
@@ -734,17 +737,18 @@ def _create_lan(computer_id, company_name, size):
     # Trim if we have too many
     remaining_types = remaining_types[:num_nodes - 1]
 
-    # Shuffle non-critical types but keep FILE_SERVER and MAINFRAME toward the end
+    # Shuffle non-critical types but keep FILE_SERVER, MAINFRAME, LOG_SERVER toward the end
     # to ensure they're deeper in the graph
     front = [t for t in remaining_types if t[0] in (LAN_TERMINAL, LAN_LOCK)]
-    back = [t for t in remaining_types if t[0] in (LAN_FILE_SERVER, LAN_MAINFRAME)]
+    back = [t for t in remaining_types if t[0] in (LAN_FILE_SERVER, LAN_MAINFRAME, LAN_LOG_SERVER)]
     random.shuffle(front)
+    random.shuffle(back)
     ordered = front + back
 
     # Assign grid positions — row 0 col 0 is taken by ROUTER
-    # Fill positions: row 0 cols 1-3, row 1 cols 0-3, row 2 cols 0-3
+    # Fill positions: row 0 cols 1-3, rows 1-3 cols 0-3 (4x4 grid)
     grid_positions = []
-    for r in range(3):
+    for r in range(4):
         for c in range(4):
             if r == 0 and c == 0:
                 continue  # taken by ROUTER

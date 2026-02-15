@@ -24,6 +24,10 @@ class TerminalSession:
         self.current_screen_index = 0
         self.authenticated_on_computer = False
         self.current_lan_node = None
+        # SysAdmin AI state (LAN)
+        self.sysadmin_state = 0
+        self.sysadmin_node = None
+        self.sysadmin_timer = 0
 
     @property
     def is_in_lan(self):
@@ -75,6 +79,9 @@ class TerminalSession:
         self.current_screen_index = start_screen
         self.authenticated_on_computer = False
         self.current_lan_node = None
+        self.sysadmin_state = 0
+        self.sysadmin_node = None
+        self.sysadmin_timer = 0
 
     def disconnect(self):
         """Disconnect from current computer."""
@@ -82,3 +89,6 @@ class TerminalSession:
         self.current_screen_index = 0
         self.authenticated_on_computer = False
         self.current_lan_node = None
+        self.sysadmin_state = 0
+        self.sysadmin_node = None
+        self.sysadmin_timer = 0

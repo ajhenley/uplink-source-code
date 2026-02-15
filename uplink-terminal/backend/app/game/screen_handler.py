@@ -727,8 +727,19 @@ def _handle_rankings(text, computer, screen, session):
     return None
 
 
+def _check_sysadmin_trigger(session, node):
+    """Wake the SysAdmin if the player interacts with a sensitive node.
+
+    Only wakes once — if already CURIOUS or higher, does nothing.
+    """
+    from .constants import SYSADMIN_ASLEEP, SYSADMIN_CURIOUS, SYSADMIN_SENSITIVE_NODES
+    if session.sysadmin_state == SYSADMIN_ASLEEP and node.node_type in SYSADMIN_SENSITIVE_NODES:
+        session.sysadmin_state = SYSADMIN_CURIOUS
+        session.sysadmin_timer = 0
+
+
 def _handle_lan(text, computer, screen, session):
-    """LAN: scan, move, hack, ls, download, exit commands."""
+    """LAN: scan, move, hack, ls, download, probe, delete, deletelogs, exit commands."""
     parts = text.strip().split(None, 1)
     cmd = parts[0].lower() if parts else ""
     arg = parts[1].strip() if len(parts) > 1 else ""
@@ -795,6 +806,8 @@ def _handle_lan(text, computer, screen, session):
             return error(f"Node '{target.label}' is locked (security level {target.security_level}). Use 'hack' after moving adjacent, or bypass it first.")
 
         session.current_lan_node = target.node_index
+        # Moving to a sensitive node wakes sysadmin
+        _check_sysadmin_trigger(session, target)
         return render_screen(computer, screen, session)
 
     elif cmd == "hack":
@@ -806,6 +819,7 @@ def _handle_lan(text, computer, screen, session):
             current_node.is_locked = False
             current_node.is_bypassed = True
             db.session.commit()
+            _check_sysadmin_trigger(session, current_node)
             return success(f"'{current_node.label}' bypassed.") + "\n" + render_screen(computer, screen, session)
 
         # Check player owns Bypasser with sufficient version
@@ -847,7 +861,118 @@ def _handle_lan(text, computer, screen, session):
             db.session.add(log)
 
         db.session.commit()
+        _check_sysadmin_trigger(session, current_node)
         return success(f"'{current_node.label}' bypassed (security level {current_node.security_level}).") + "\n" + render_screen(computer, screen, session)
+
+    elif cmd == "probe":
+        if not arg:
+            return error("Usage: probe <#> (number from adjacent nodes list)")
+
+        try:
+            choice = int(arg)
+        except ValueError:
+            return error("Usage: probe <#>")
+
+        # Build adjacency list of discovered nodes
+        adj_nodes = []
+        for adj_idx in current_node.connections:
+            adj = by_index.get(adj_idx)
+            if adj and adj.is_discovered:
+                adj_nodes.append(adj)
+
+        if choice < 1 or choice > len(adj_nodes):
+            return error(f"Invalid choice. Range: 1-{len(adj_nodes)}.")
+
+        target = adj_nodes[choice - 1]
+        target_links = [by_index.get(c) for c in target.connections if by_index.get(c)]
+        link_labels = [n.label for n in target_links if n.is_discovered]
+        content = target.content
+        file_count = len(content.get("files", []))
+        status_str = "LOCKED" if (target.is_locked and not target.is_bypassed) else "OPEN"
+
+        probe_lines = [
+            "",
+            f"  {bright_green(f'Probe: {target.label}')}",
+            f"  {dim('=' * 40)}",
+            f"  {cyan('Type:')}     {green(target.node_type)}",
+            f"  {cyan('Security:')} {dim(str(target.security_level))}",
+            f"  {cyan('Status:')}   {yellow(status_str) if status_str == 'LOCKED' else green(status_str)}",
+            f"  {cyan('Links:')}    {dim(', '.join(link_labels) if link_labels else 'unknown')}",
+        ]
+        if target.node_type in (LAN_FILE_SERVER, LAN_MAINFRAME, LAN_LOG_SERVER):
+            probe_lines.append(f"  {cyan('Files:')}    {dim(str(file_count))}")
+        probe_lines.append("")
+        return "\n".join(probe_lines)
+
+    elif cmd == "delete":
+        if not arg:
+            return error("Usage: delete <filename>")
+
+        if current_node.node_type not in (LAN_FILE_SERVER, LAN_MAINFRAME):
+            return error(f"No files on this node ({current_node.node_type}).")
+
+        if current_node.is_locked and not current_node.is_bypassed:
+            return error("Node is locked. Hack it first.")
+
+        content = current_node.content
+        files = content.get("files", [])
+        target_file = None
+        for f in files:
+            if f["name"] == arg:
+                target_file = f
+                break
+
+        if not target_file:
+            return error(f"File '{arg}' not found on this node.")
+
+        # Remove the file from the node's content
+        files.remove(target_file)
+        content["files"] = files
+        current_node.content = content
+
+        # Create suspicious access log
+        gsid = session.game_session_id
+        gs = db.session.get(GameSession, gsid)
+        if gs:
+            log = AccessLog(
+                computer_id=computer.id,
+                game_tick=gs.game_time_ticks,
+                from_ip=gs.gateway_ip or "unknown",
+                from_name=session.username or "unknown",
+                action=f"LAN file deleted: {target_file['name']}",
+                suspicious=True,
+            )
+            db.session.add(log)
+
+        db.session.commit()
+        _check_sysadmin_trigger(session, current_node)
+        return success(f"Deleted '{target_file['name']}' from {current_node.label}.")
+
+    elif cmd == "deletelogs":
+        if current_node.node_type != LAN_LOG_SERVER:
+            return error("deletelogs is only available on a Log Server node.")
+
+        if current_node.is_locked and not current_node.is_bypassed:
+            return error("Node is locked. Hack it first.")
+
+        # Clear all visible suspicious access logs on the ISM
+        suspicious_logs = AccessLog.query.filter_by(
+            computer_id=computer.id,
+            is_visible=True,
+            suspicious=True,
+        ).all()
+
+        if not suspicious_logs:
+            return info("No suspicious logs found to clear.")
+
+        count = 0
+        for log in suspicious_logs:
+            log.is_visible = False
+            count += 1
+
+        db.session.commit()
+        _check_sysadmin_trigger(session, current_node)
+        return success(f"Cleared {count} suspicious log(s) from the system.")
 
     elif cmd == "ls":
         if current_node.node_type not in (LAN_FILE_SERVER, LAN_MAINFRAME):
@@ -871,7 +996,7 @@ def _handle_lan(text, computer, screen, session):
                 f"  {green(f['name']):<40} {dim(str(f['size']) + ' GQ'):<10} {dim(f['type'])}"
             )
         file_lines.append("")
-        file_lines.append(dim("  'download <filename>' to copy to gateway"))
+        file_lines.append(dim("  'download <filename>' to copy, 'delete <filename>' to remove"))
         file_lines.append("")
         return "\n".join(file_lines)
 
@@ -936,6 +1061,7 @@ def _handle_lan(text, computer, screen, session):
         db.session.add(log)
 
         db.session.commit()
+        _check_sysadmin_trigger(session, current_node)
         return success(f"Downloaded '{target_file['name']}' ({target_file['size']} GQ) to gateway.")
 
     elif cmd in ("exit", "back"):

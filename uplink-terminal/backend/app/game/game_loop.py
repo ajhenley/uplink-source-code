@@ -76,6 +76,12 @@ def tick():
         if gs.game_time_ticks % ADMIN_REVIEW_INTERVAL < gs.speed_multiplier:
             _admin_review(gs, ts)
 
+        # --- SysAdmin tick (LAN) ---
+        if ts.is_in_lan and ts.sysadmin_state > 0:
+            from .constants import SYSADMIN_TICK_INTERVAL
+            if gs.game_time_ticks % SYSADMIN_TICK_INTERVAL < gs.speed_multiplier:
+                _tick_sysadmin(gs, ts)
+
         # --- Trace advancement ---
         conn = Connection.query.filter_by(
             game_session_id=gs.id
@@ -458,4 +464,166 @@ def _execute_arrest(gs, ts):
     # Return player to session manager
     ts.disconnect()
     ts.leave_game()
+    socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+
+
+def _bfs_path(by_index, start, goal):
+    """BFS shortest path through LAN graph. Returns list of node indices (including start and goal)."""
+    from collections import deque
+
+    if start == goal:
+        return [start]
+
+    visited = {start}
+    queue = deque([(start, [start])])
+
+    while queue:
+        current, path = queue.popleft()
+        node = by_index.get(current)
+        if not node:
+            continue
+        for adj_idx in node.connections:
+            if adj_idx in visited:
+                continue
+            new_path = path + [adj_idx]
+            if adj_idx == goal:
+                return new_path
+            visited.add(adj_idx)
+            queue.append((adj_idx, new_path))
+
+    return []  # no path found
+
+
+def _tick_sysadmin(gs, ts):
+    """Advance the SysAdmin AI state machine for one tick."""
+    from ..models import LanNode, Computer, AccessLog, Connection
+    from .constants import (
+        SYSADMIN_ASLEEP, SYSADMIN_CURIOUS, SYSADMIN_SEARCHING, SYSADMIN_FOUNDYOU,
+        SYSADMIN_CURIOUS_TICKS, SYSADMIN_SEARCH_STEP_TICKS,
+    )
+    from ..extensions import socketio
+    from ..terminal.output import warning, error, bright_red
+    from .screen_renderer import render_screen
+
+    if not ts.is_in_lan or not ts.current_computer_ip:
+        return
+
+    computer = Computer.query.filter_by(
+        game_session_id=gs.id, ip=ts.current_computer_ip
+    ).first()
+    if not computer:
+        return
+
+    lan_nodes = LanNode.query.filter_by(computer_id=computer.id).order_by(LanNode.node_index).all()
+    if not lan_nodes:
+        return
+
+    by_index = {n.node_index: n for n in lan_nodes}
+    sid = ts.sid
+
+    ts.sysadmin_timer += gs.speed_multiplier
+
+    if ts.sysadmin_state == SYSADMIN_CURIOUS:
+        if ts.sysadmin_timer >= SYSADMIN_CURIOUS_TICKS:
+            # Transition to SEARCHING
+            ts.sysadmin_state = SYSADMIN_SEARCHING
+            ts.sysadmin_timer = 0
+            ts.sysadmin_node = 0  # Start at ROUTER
+
+            # Start trace on the ISM if not already tracing
+            conn = Connection.query.filter_by(game_session_id=gs.id).first()
+            if conn and conn.is_active and not conn.trace_in_progress:
+                conn.trace_in_progress = True
+                conn.trace_progress = 0.0
+
+            msg = warning("SysAdmin alerted! Searching for intruder...")
+            socketio.emit("output", {"text": "\n" + msg + "\n"}, to=sid)
+            socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+
+    elif ts.sysadmin_state == SYSADMIN_SEARCHING:
+        if ts.sysadmin_timer >= SYSADMIN_SEARCH_STEP_TICKS:
+            ts.sysadmin_timer = 0
+
+            # Recompute BFS from sysadmin's current node to player's current node
+            path = _bfs_path(by_index, ts.sysadmin_node, ts.current_lan_node)
+            if len(path) >= 2:
+                # Move one step toward player
+                next_node_idx = path[1]
+                ts.sysadmin_node = next_node_idx
+                next_node = by_index.get(next_node_idx)
+                label = next_node.label if next_node else f"Node {next_node_idx}"
+
+                if next_node_idx == ts.current_lan_node:
+                    # Caught the player
+                    ts.sysadmin_state = SYSADMIN_FOUNDYOU
+                    _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes)
+                else:
+                    msg = warning(f"SysAdmin moved to {label}")
+                    socketio.emit("output", {"text": "\n" + msg + "\n"}, to=sid)
+                    socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+            elif len(path) <= 1:
+                # Already at player or no path — caught
+                ts.sysadmin_state = SYSADMIN_FOUNDYOU
+                _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes)
+
+
+def _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes):
+    """SysAdmin catches the player in the LAN."""
+    from ..models import AccessLog, Connection
+    from .constants import SYSADMIN_ASLEEP
+    from ..extensions import socketio
+    from ..terminal.output import bright_red
+    from .screen_renderer import render_screen
+
+    sid = ts.sid
+
+    # 1. Re-lock all bypassed LAN nodes
+    for node in lan_nodes:
+        if node.is_bypassed:
+            node.is_bypassed = False
+            if node.security_level > 0:
+                node.is_locked = True
+
+    # 2. Kick player back to ROUTER
+    ts.current_lan_node = 0
+
+    # 3. Create suspicious access log
+    log = AccessLog(
+        computer_id=computer.id,
+        game_tick=gs.game_time_ticks,
+        from_ip=gs.gateway_ip or "unknown",
+        from_name=ts.username or "unknown",
+        action="INTRUDER DETECTED by SysAdmin",
+        suspicious=True,
+    )
+    db.session.add(log)
+
+    # 4. Boost trace progress by 15%
+    conn = Connection.query.filter_by(game_session_id=gs.id).first()
+    if conn and conn.is_active:
+        conn.trace_progress = min(conn.trace_progress + 15.0, 100.0)
+
+    # 5. Reset sysadmin to ASLEEP
+    ts.sysadmin_state = SYSADMIN_ASLEEP
+    ts.sysadmin_node = None
+    ts.sysadmin_timer = 0
+
+    # 6. Emit dramatic banner + re-render
+    banner = (
+        "\n" +
+        bright_red("=" * 56) + "\n" +
+        bright_red("  INTRUDER DETECTED") + "\n" +
+        bright_red("  SysAdmin has found you!") + "\n" +
+        bright_red("  All bypassed nodes re-locked. Returned to Router.") + "\n" +
+        bright_red("  Trace boosted +15%.") + "\n" +
+        bright_red("=" * 56) + "\n"
+    )
+
+    # Re-render the LAN screen
+    screen = computer.get_screen(ts.current_screen_index)
+    lan_view = ""
+    if screen:
+        lan_view = "\n" + render_screen(computer, screen, ts)
+
+    socketio.emit("output", {"text": banner + lan_view}, to=sid)
     socketio.emit("prompt", {"text": ts.prompt}, to=sid)

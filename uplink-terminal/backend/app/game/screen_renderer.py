@@ -446,7 +446,11 @@ def _render_rankings(computer, screen, session):
 def _render_lan(computer, screen, session):
     """Render LAN screen with ASCII grid map and node info."""
     from ..models import LanNode
-    from .constants import LAN_NODE_CHARS, LAN_ROUTER, LAN_FILE_SERVER, LAN_MAINFRAME
+    from .constants import (
+        LAN_NODE_CHARS, LAN_ROUTER, LAN_FILE_SERVER, LAN_MAINFRAME, LAN_LOG_SERVER,
+        SYSADMIN_ASLEEP, SYSADMIN_CURIOUS, SYSADMIN_SEARCHING, SYSADMIN_FOUNDYOU,
+    )
+    from ..terminal.output import bright_red, red
 
     lines = _screen_header(screen.title, screen.subtitle)
 
@@ -467,6 +471,10 @@ def _render_lan(computer, screen, session):
     if current_idx is None:
         current_idx = 0
 
+    # SysAdmin state
+    sa_state = getattr(session, 'sysadmin_state', SYSADMIN_ASLEEP)
+    sa_node = getattr(session, 'sysadmin_node', None)
+
     # Determine which positions are adjacent to discovered nodes (for "?" rendering)
     discovered_indices = {n.node_index for n in lan_nodes if n.is_discovered}
     adjacent_to_discovered = set()
@@ -481,17 +489,28 @@ def _render_lan(computer, screen, session):
     lines.append(f"  {cyan('LAN Network Map')}")
     lines.append("")
 
-    # Render grid: 3 rows x 4 cols
-    for row in range(3):
+    # Render grid: 4 rows x 4 cols
+    for row in range(4):
         # Node row
         node_line = "  "
-        # Connection row (horizontal between cols)
-        conn_line = "  "
         for col in range(4):
             node = by_pos.get((row, col))
+
+            # Check if sysadmin is at this position
+            sa_at_pos = False
+            if sa_state == SYSADMIN_SEARCHING and sa_node is not None:
+                sa_n = by_index.get(sa_node)
+                if sa_n and sa_n.row == row and sa_n.col == col:
+                    sa_at_pos = True
+
             if node and node.is_discovered:
                 char = LAN_NODE_CHARS.get(node.node_type, "?")
-                if node.node_index == current_idx:
+                if sa_at_pos and node.node_index == current_idx:
+                    # SysAdmin and player on same node
+                    cell = bright_red(f"[!]")
+                elif sa_at_pos:
+                    cell = f" {bright_red('!')} "
+                elif node.node_index == current_idx:
                     # Current node: highlighted with brackets
                     if node.is_locked and not node.is_bypassed:
                         cell = yellow(f"[{char}]")
@@ -523,7 +542,7 @@ def _render_lan(computer, screen, session):
         lines.append(node_line)
 
         # Vertical connections to next row
-        if row < 2:
+        if row < 3:
             vert_line = "  "
             for col in range(4):
                 top = by_pos.get((row, col))
@@ -538,6 +557,19 @@ def _render_lan(computer, screen, session):
             lines.append(vert_line)
 
     lines.append("")
+
+    # SysAdmin status indicator
+    if sa_state == SYSADMIN_CURIOUS:
+        lines.append(f"  {yellow('ALERT: SysAdmin activity detected')}")
+    elif sa_state == SYSADMIN_SEARCHING:
+        sa_label = ""
+        if sa_node is not None:
+            sa_n = by_index.get(sa_node)
+            if sa_n:
+                sa_label = f" (at {sa_n.label})"
+        lines.append(f"  {bright_red('SEARCHING: SysAdmin hunting for intruder' + sa_label)}")
+    if sa_state > SYSADMIN_ASLEEP:
+        lines.append("")
 
     # Current node info
     current_node = by_index.get(current_idx)
@@ -564,7 +596,8 @@ def _render_lan(computer, screen, session):
                 lines.append(f"    {bright_green(str(i + 1) + '.')} {green(label)} {st}")
 
     lines.append("")
-    lines.append(dim("  Commands: scan, move <#>, hack, ls, download <file>, exit"))
+    lines.append(dim("  Commands: scan, move <#>, hack, ls, download <file>,"))
+    lines.append(dim("           probe <#>, delete <file>, deletelogs, exit"))
     lines.append("")
     return "\n".join(lines)
 
