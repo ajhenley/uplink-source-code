@@ -3,7 +3,7 @@
 from ..extensions import db
 from ..models import (
     Software, RunningTool, Computer, DataFile, AccessLog,
-    GameSession, Connection, SecuritySystem,
+    GameSession, Connection, SecuritySystem, PlayerLink,
 )
 from .constants import *
 
@@ -76,6 +76,18 @@ def start_tool(session, tool_type, target_ip, target_param=None):
                 return False, f"File '{target_param}' not found."
             if not df.encrypted:
                 return False, f"File '{target_param}' is not encrypted."
+    elif tool_type == TOOL_BYPASSER:
+        if comp:
+            # Need at least one non-bypassed security system
+            has_target = False
+            for sec_type in (SEC_PROXY, SEC_FIREWALL, SEC_MONITOR):
+                sec = _get_security(comp.id, sec_type)
+                if sec and not sec.is_bypassed:
+                    has_target = True
+                    break
+            if not has_target:
+                return False, "No active security to bypass on this system."
+    # TOOL_IP_PROBE has no special prerequisites
 
     # Calculate ticks required
     ticks = _calc_ticks(tool_type, gsid, target_ip, target_param)
@@ -279,6 +291,25 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
         else:
             raw = base * 3
 
+    elif tool_type == TOOL_BYPASSER:
+        # Ticks per security level * bypasser speed penalty
+        comp = Computer.query.filter_by(
+            game_session_id=gsid, ip=target_ip
+        ).first()
+        level = 1
+        if comp:
+            # Find first non-bypassed security (priority: proxy > firewall > monitor)
+            for sec_type in (SEC_PROXY, SEC_FIREWALL, SEC_MONITOR):
+                sec = _get_security(comp.id, sec_type)
+                if sec and not sec.is_bypassed:
+                    level = sec.level
+                    break
+        raw = int(base * level * BYPASSER_SPEED_PENALTY)
+
+    elif tool_type == TOOL_IP_PROBE:
+        # Flat ticks
+        raw = base
+
     else:
         raw = base
 
@@ -286,6 +317,16 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
     if tool_type != TOOL_TRACE_TRACKER:
         cpu_speed = _get_hw_value(gsid, HW_CPU, CPU_BASELINE)
         raw = max(1, int(raw * CPU_BASELINE / cpu_speed))
+
+    # Version speed multiplier (faster tools at higher versions)
+    if tool_type != TOOL_TRACE_TRACKER:
+        sw = Software.query.filter_by(
+            game_session_id=gsid, software_type=tool_type
+        ).first()
+        if sw:
+            ver_mult = get_version_speed_multiplier(sw.version)
+            if ver_mult > 1.0:
+                raw = max(1, int(raw / ver_mult))
 
     return raw
 
@@ -310,6 +351,10 @@ def _execute_tool_effect(rt, ts=None):
         _effect_monitor_bypass(rt)
     elif rt.tool_type == TOOL_DECRYPTER:
         _effect_decrypter(rt)
+    elif rt.tool_type == TOOL_BYPASSER:
+        _effect_bypasser(rt)
+    elif rt.tool_type == TOOL_IP_PROBE:
+        _effect_ip_probe(rt)
 
 
 def _effect_password_breaker(rt, ts=None):
@@ -539,3 +584,53 @@ def _effect_decrypter(rt):
         rt.result = {"decrypted": rt.target_param, "on_ip": rt.target_ip}
     else:
         rt.result = {"error": "File not found or not encrypted."}
+
+
+def _effect_bypasser(rt):
+    """Bypass the first non-bypassed security system (proxy > firewall > monitor)."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp:
+        return
+
+    for sec_type in (SEC_PROXY, SEC_FIREWALL, SEC_MONITOR):
+        sec = _get_security(comp.id, sec_type)
+        if sec and not sec.is_bypassed:
+            sec.is_bypassed = True
+            rt.result = {"bypassed": sec_type.lower(), "on_ip": rt.target_ip}
+            return
+
+    rt.result = {"error": "No active security to bypass."}
+
+
+def _effect_ip_probe(rt):
+    """Discover all computers belonging to the same company and add to player links."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp or not comp.company_name:
+        rt.result = {"discovered": [], "on_ip": rt.target_ip}
+        return
+
+    # Find all computers with the same company name
+    same_company = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, company_name=comp.company_name
+    ).all()
+
+    discovered = []
+    for c in same_company:
+        if c.ip == rt.target_ip:
+            continue
+        # Check if already in player links
+        existing = PlayerLink.query.filter_by(
+            game_session_id=rt.game_session_id, ip=c.ip
+        ).first()
+        if not existing:
+            db.session.add(PlayerLink(
+                game_session_id=rt.game_session_id, ip=c.ip, label=c.name
+            ))
+            discovered.append({"ip": c.ip, "name": c.name})
+
+    rt.result = {"discovered": discovered, "on_ip": rt.target_ip}
+    # IP Probe is non-suspicious — no access log created

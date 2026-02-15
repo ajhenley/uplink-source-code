@@ -182,6 +182,19 @@ def _push_tool_events(ts, events):
                     msg = warning(f"{tool_name} failed — {err}")
                 else:
                     msg = success(f"{tool_name} complete — '{rt.target_param}' decrypted.")
+            elif rt.tool_type == "BYPASSER":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    bypassed_type = rt.result.get("bypassed", "security") if rt.result else "security"
+                    msg = success(f"{tool_name} complete — {bypassed_type} bypassed.")
+            elif rt.tool_type == "IP_PROBE":
+                discovered = rt.result.get("discovered", []) if rt.result else []
+                if discovered:
+                    names = ", ".join(d["name"] for d in discovered)
+                    msg = success(f"{tool_name} complete — discovered: {names}. Added to links.")
+                else:
+                    msg = success(f"{tool_name} complete — no new systems discovered.")
             else:
                 msg = success(f"{tool_name} complete.")
 

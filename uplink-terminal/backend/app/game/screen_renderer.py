@@ -221,8 +221,9 @@ def _render_bbs(computer, screen, session):
 
 
 def _render_shop(computer, screen, session):
-    """Render software shop screen."""
+    """Render software shop screen with owned/upgrade markers."""
     from .constants import SOFTWARE_CATALOG
+    from ..models import Software
 
     lines = _screen_header(screen.title, screen.subtitle)
 
@@ -230,17 +231,43 @@ def _render_shop(computer, screen, session):
         lines.append(f"  {dim('No session context.')}")
         return "\n".join(lines)
 
-    lines.append(f"  {cyan('Item'):<40} {cyan('Type'):<20} {cyan('Cost')}")
-    lines.append(f"  {dim('-' * 56)}")
+    # Build lookup of owned software: {software_type: version_str}
+    owned = {}
+    if session.game_session_id:
+        for sw in Software.query.filter_by(game_session_id=session.game_session_id).all():
+            owned[sw.software_type] = sw.version
+
+    lines.append(
+        f"  {cyan('#'):<6} {cyan('Item'):<28} {cyan('Ver'):<8} "
+        f"{cyan('Size'):<8} {cyan('Cost'):<10} {cyan('Status')}"
+    )
+    lines.append(f"  {dim('-' * 68)}")
 
     for i, (name, stype, ver, size, cost) in enumerate(SOFTWARE_CATALOG, 1):
+        # Determine status marker
+        owned_ver = owned.get(stype)
+        if owned_ver:
+            try:
+                owned_f = float(owned_ver)
+                item_f = float(ver)
+            except (TypeError, ValueError):
+                owned_f, item_f = 1.0, 1.0
+
+            if item_f <= owned_f:
+                status = dim(f"(OWNED v{owned_ver})")
+            else:
+                status = yellow("(UPGRADE)")
+        else:
+            status = ""
+
         lines.append(
-            f"  {bright_green(str(i) + '.')} {green(f'{name} v{ver}'):<36} "
-            f"{dim(stype):<20} {yellow(f'{cost}c')}"
+            f"  {bright_green(str(i) + '.'):<6} {green(name):<28} "
+            f"{dim('v' + ver):<8} {dim(str(size) + ' GQ'):<8} "
+            f"{yellow(f'{cost}c'):<10} {status}"
         )
 
     lines.append("")
-    lines.append(dim("  Type 'buy <#>' to purchase, 'back' to return, 'dc' to disconnect"))
+    lines.append(dim("  Type 'buy <#>' to purchase/upgrade, 'back' to return, 'dc' to disconnect"))
     lines.append("")
     return "\n".join(lines)
 

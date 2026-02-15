@@ -354,7 +354,7 @@ def _handle_bbs(text, computer, screen, session):
 
 
 def _handle_shop(text, computer, screen, session):
-    """SHOP: 'buy <#>' purchases software."""
+    """SHOP: 'buy <#>' purchases or upgrades software."""
     parts = text.strip().split(None, 1)
     cmd = parts[0].lower() if parts else ""
     arg = parts[1].strip() if len(parts) > 1 else ""
@@ -392,10 +392,50 @@ def _handle_shop(text, computer, screen, session):
         existing = Software.query.filter_by(
             game_session_id=gsid, software_type=stype
         ).first()
-        if existing:
-            return warning(f"You already own {existing.name}.")
 
-        # Check memory capacity
+        if existing:
+            # Compare versions
+            try:
+                owned_ver = float(existing.version)
+                new_ver = float(ver)
+            except (TypeError, ValueError):
+                owned_ver, new_ver = 1.0, 1.0
+
+            if new_ver <= owned_ver:
+                return warning(
+                    f"You already own {existing.name} v{existing.version}. "
+                    f"Only higher versions can be purchased as upgrades."
+                )
+
+            # Upgrade: memory check uses size delta (new - old)
+            size_delta = size - existing.size
+            if size_delta > 0:
+                mem_hw = Hardware.query.filter_by(
+                    game_session_id=gsid, hardware_type=HW_MEMORY
+                ).first()
+                if mem_hw:
+                    used_mem = sum(
+                        s.size for s in Software.query.filter_by(game_session_id=gsid).all()
+                    )
+                    if used_mem + size_delta > mem_hw.value:
+                        return error(
+                            f"Insufficient memory. Need {size_delta} GQ more, "
+                            f"have {mem_hw.value - used_mem}/{mem_hw.value} GQ free."
+                        )
+
+            # Upgrade in-place
+            gs.balance -= cost
+            existing.name = name
+            existing.version = ver
+            existing.size = size
+            existing.cost = cost
+            db.session.commit()
+
+            return success(
+                f"Upgraded {name} to v{ver} for {cost} credits. Balance: {gs.balance}c."
+            )
+
+        # New purchase — check memory capacity
         mem_hw = Hardware.query.filter_by(
             game_session_id=gsid, hardware_type=HW_MEMORY
         ).first()

@@ -525,7 +525,8 @@ def cmd_run(args, session):
                       "  Tools: password_breaker, file_copier <file>, "
                       "file_deleter <file>, log_deleter,\n"
                       "         proxy_disable, firewall_disable, "
-                      "monitor_bypass, decrypter <file>")
+                      "monitor_bypass, decrypter <file>,\n"
+                      "         bypasser, ip_probe")
 
     tool_name = args[0].lower()
     tool_type = TOOL_ALIASES.get(tool_name)
@@ -585,9 +586,10 @@ def cmd_tools(args, session):
         filled = int(bar_width * rt.progress / 100)
         bar = bright_green("#" * filled) + dim("-" * (bar_width - filled))
         tool_name = rt.tool_type.replace("_", " ").title()
+        ver_str = f" v{rt.software.version}" if rt.software else ""
 
         lines.append(
-            f"  {green(tool_name):<30} [{bar}] {cyan(f'{rt.progress:.0f}%')}"
+            f"  {green(tool_name)}{dim(ver_str):<10} [{bar}] {cyan(f'{rt.progress:.0f}%')}"
         )
         if rt.target_param:
             lines.append(f"    {dim(f'Target: {rt.target_param}')}")

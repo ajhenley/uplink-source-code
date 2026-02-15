@@ -118,6 +118,12 @@ TOOL_PROXY_DISABLE = "PROXY_DISABLE"
 TOOL_FIREWALL_DISABLE = "FIREWALL_DISABLE"
 TOOL_MONITOR_BYPASS = "MONITOR_BYPASS"
 TOOL_DECRYPTER = "DECRYPTER"
+TOOL_BYPASSER = "BYPASSER"
+TOOL_IP_PROBE = "IP_PROBE"
+
+# Version speed scaling
+VERSION_SPEED_STEP = 0.5
+BYPASSER_SPEED_PENALTY = 1.5
 
 # Tool tick rates (at 5Hz, speed x1)
 TOOL_TICKS = {
@@ -130,6 +136,8 @@ TOOL_TICKS = {
     "FIREWALL_DISABLE": 35,   # ticks per security level
     "MONITOR_BYPASS": 25,     # ticks per security level
     "DECRYPTER": 20,          # ticks per GQ file size
+    "BYPASSER": 40,           # ticks per security level (before 1.5x penalty)
+    "IP_PROBE": 80,           # flat ticks
 }
 
 # Tool statuses
@@ -143,16 +151,70 @@ STARTING_SOFTWARE = [
 ]
 
 # Software shop catalog: (name, type, version, size, cost)
+# v1.0 = base price/size; v2.0 ~2x cost, +1 GQ; v3.0 ~3.5x; v4.0 ~5x, +1 GQ; v5.0 ~8x
 SOFTWARE_CATALOG = [
+    # Password Breaker (base: 2 GQ, 1500c)
     ("Password Breaker", "PASSWORD_BREAKER", "1.0", 2, 1500),
+    ("Password Breaker", "PASSWORD_BREAKER", "2.0", 3, 3000),
+    ("Password Breaker", "PASSWORD_BREAKER", "3.0", 3, 5200),
+    ("Password Breaker", "PASSWORD_BREAKER", "4.0", 4, 7500),
+    ("Password Breaker", "PASSWORD_BREAKER", "5.0", 4, 12000),
+    # File Copier (base: 1 GQ, 100c)
     ("File Copier", "FILE_COPIER", "1.0", 1, 100),
+    ("File Copier", "FILE_COPIER", "2.0", 2, 200),
+    ("File Copier", "FILE_COPIER", "3.0", 2, 350),
+    ("File Copier", "FILE_COPIER", "4.0", 3, 500),
+    ("File Copier", "FILE_COPIER", "5.0", 3, 800),
+    # File Deleter (base: 1 GQ, 100c)
     ("File Deleter", "FILE_DELETER", "1.0", 1, 100),
+    ("File Deleter", "FILE_DELETER", "2.0", 2, 200),
+    ("File Deleter", "FILE_DELETER", "3.0", 2, 350),
+    ("File Deleter", "FILE_DELETER", "4.0", 3, 500),
+    ("File Deleter", "FILE_DELETER", "5.0", 3, 800),
+    # Log Deleter (base: 1 GQ, 500c)
     ("Log Deleter", "LOG_DELETER", "1.0", 1, 500),
+    ("Log Deleter", "LOG_DELETER", "2.0", 2, 1000),
+    ("Log Deleter", "LOG_DELETER", "3.0", 2, 1750),
+    ("Log Deleter", "LOG_DELETER", "4.0", 3, 2500),
+    ("Log Deleter", "LOG_DELETER", "5.0", 3, 4000),
+    # Trace Tracker — v1.0 only (passive tool, no speed benefit)
     ("Trace Tracker", "TRACE_TRACKER", "1.0", 1, 300),
+    # Proxy Disable (base: 2 GQ, 2000c)
     ("Proxy Disable", "PROXY_DISABLE", "1.0", 2, 2000),
+    ("Proxy Disable", "PROXY_DISABLE", "2.0", 3, 4000),
+    ("Proxy Disable", "PROXY_DISABLE", "3.0", 3, 7000),
+    ("Proxy Disable", "PROXY_DISABLE", "4.0", 4, 10000),
+    ("Proxy Disable", "PROXY_DISABLE", "5.0", 4, 16000),
+    # Firewall Disable (base: 2 GQ, 2500c)
     ("Firewall Disable", "FIREWALL_DISABLE", "1.0", 2, 2500),
+    ("Firewall Disable", "FIREWALL_DISABLE", "2.0", 3, 5000),
+    ("Firewall Disable", "FIREWALL_DISABLE", "3.0", 3, 8700),
+    ("Firewall Disable", "FIREWALL_DISABLE", "4.0", 4, 12500),
+    ("Firewall Disable", "FIREWALL_DISABLE", "5.0", 4, 20000),
+    # Monitor Bypass (base: 2 GQ, 1800c)
     ("Monitor Bypass", "MONITOR_BYPASS", "1.0", 2, 1800),
+    ("Monitor Bypass", "MONITOR_BYPASS", "2.0", 3, 3600),
+    ("Monitor Bypass", "MONITOR_BYPASS", "3.0", 3, 6300),
+    ("Monitor Bypass", "MONITOR_BYPASS", "4.0", 4, 9000),
+    ("Monitor Bypass", "MONITOR_BYPASS", "5.0", 4, 14400),
+    # Decrypter (base: 1 GQ, 1200c)
     ("Decrypter", "DECRYPTER", "1.0", 1, 1200),
+    ("Decrypter", "DECRYPTER", "2.0", 2, 2400),
+    ("Decrypter", "DECRYPTER", "3.0", 2, 4200),
+    ("Decrypter", "DECRYPTER", "4.0", 3, 6000),
+    ("Decrypter", "DECRYPTER", "5.0", 3, 9600),
+    # Bypasser — universal security bypass (base: 2 GQ, 3000c)
+    ("Bypasser", "BYPASSER", "1.0", 2, 3000),
+    ("Bypasser", "BYPASSER", "2.0", 3, 6000),
+    ("Bypasser", "BYPASSER", "3.0", 3, 10500),
+    ("Bypasser", "BYPASSER", "4.0", 4, 15000),
+    ("Bypasser", "BYPASSER", "5.0", 4, 24000),
+    # IP Probe — network reconnaissance (base: 1 GQ, 800c)
+    ("IP Probe", "IP_PROBE", "1.0", 1, 800),
+    ("IP Probe", "IP_PROBE", "2.0", 2, 1600),
+    ("IP Probe", "IP_PROBE", "3.0", 2, 2800),
+    ("IP Probe", "IP_PROBE", "4.0", 3, 4000),
+    ("IP Probe", "IP_PROBE", "5.0", 3, 6400),
 ]
 
 # Mission payments (base, variance fraction)
@@ -191,6 +253,8 @@ TOOL_ALIASES = {
     "firewall_disable": "FIREWALL_DISABLE",
     "monitor_bypass": "MONITOR_BYPASS",
     "decrypter": "DECRYPTER",
+    "bypasser": "BYPASSER",
+    "ip_probe": "IP_PROBE",
 }
 
 
@@ -341,3 +405,16 @@ def get_criminal_level_name(record):
         if record >= threshold:
             name = CRIMINAL_LEVEL_NAMES[threshold]
     return name
+
+
+def get_version_speed_multiplier(version_str):
+    """Get the speed multiplier for a software version string.
+
+    Formula: 1.0 + (version - 1) * VERSION_SPEED_STEP
+    v1.0 = 1.0x, v2.0 = 1.5x, v3.0 = 2.0x, v4.0 = 2.5x, v5.0 = 3.0x
+    """
+    try:
+        version = float(version_str)
+    except (TypeError, ValueError):
+        return 1.0
+    return 1.0 + (version - 1.0) * VERSION_SPEED_STEP
