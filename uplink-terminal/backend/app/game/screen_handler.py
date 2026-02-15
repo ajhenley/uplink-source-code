@@ -1,8 +1,8 @@
 """Handle screen-contextual input when connected to a computer."""
 
 from ..extensions import db
-from ..models import Computer, PlayerLink, VLocation
-from ..terminal.output import success, error, info, warning, dim, green, bright_green
+from ..models import Computer, PlayerLink, VLocation, Mission, Software, GameSession
+from ..terminal.output import success, error, info, warning, dim, green, bright_green, cyan, yellow
 from .constants import *
 from .screen_renderer import render_screen
 
@@ -33,6 +33,8 @@ def handle_screen_input(text, session):
         SCREEN_FILESERVER: _handle_fileserver,
         SCREEN_LOGSCREEN: _handle_logscreen,
         SCREEN_LINKS: _handle_links,
+        SCREEN_BBS: _handle_bbs,
+        SCREEN_SHOP: _handle_shop,
     }
 
     handler = handlers.get(screen.screen_type)
@@ -223,3 +225,124 @@ def _addlink_from_screen(arg, computer, session):
     db.session.add(PlayerLink(game_session_id=gsid, ip=ip, label=name))
     db.session.commit()
     return success(f"Added '{name}' ({ip}) to your links.")
+
+
+def _handle_bbs(text, computer, screen, session):
+    """BBS (Mission Board): number views details, 'accept <#>' takes mission."""
+    from .mission_engine import accept_mission, get_available_missions
+
+    parts = text.strip().split(None, 1)
+    cmd = parts[0].lower() if parts else ""
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    gsid = session.game_session_id
+    missions = get_available_missions(gsid)
+
+    if cmd == "back":
+        for s in computer.screens:
+            if s.screen_type == SCREEN_MENU:
+                return _navigate_to(session, computer, s.screen_index)
+        return _navigate_to(session, computer, 0)
+
+    if cmd == "accept":
+        if not arg:
+            return error("Usage: accept <#>")
+        try:
+            idx = int(arg)
+        except ValueError:
+            return error("Usage: accept <#>")
+
+        if idx < 1 or idx > len(missions):
+            return error(f"Invalid mission number. Range: 1-{len(missions)}.")
+
+        mission = missions[idx - 1]
+        ok, msg = accept_mission(gsid, mission.id)
+        if ok:
+            return success(msg)
+        return error(msg)
+
+    # Number selects a mission for details
+    try:
+        idx = int(cmd)
+    except ValueError:
+        return None
+
+    if idx < 1 or idx > len(missions):
+        return error(f"Invalid mission number. Range: 1-{len(missions)}.")
+
+    m = missions[idx - 1]
+    mtype_label = m.mission_type.replace("_", " ").title()
+    lines = [
+        "",
+        f"  {bright_green(f'Mission #{idx}')}",
+        f"  {dim('=' * 40)}",
+        f"  {cyan('Type:')}     {green(mtype_label)}",
+        f"  {cyan('Employer:')} {green(m.employer)}",
+        f"  {cyan('Payment:')}  {yellow(f'{m.payment} credits')}",
+        f"  {cyan('Target:')}   {dim(m.target_ip)}",
+        "",
+        f"  {green(m.details)}",
+        "",
+        f"  {dim('Type accept ' + str(idx) + ' to take this mission.')}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _handle_shop(text, computer, screen, session):
+    """SHOP: 'buy <#>' purchases software."""
+    parts = text.strip().split(None, 1)
+    cmd = parts[0].lower() if parts else ""
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    gsid = session.game_session_id
+
+    if cmd == "back":
+        for s in computer.screens:
+            if s.screen_type == SCREEN_MENU:
+                return _navigate_to(session, computer, s.screen_index)
+        return _navigate_to(session, computer, 0)
+
+    if cmd == "buy":
+        if not arg:
+            return error("Usage: buy <#>")
+        try:
+            idx = int(arg)
+        except ValueError:
+            return error("Usage: buy <#>")
+
+        if idx < 1 or idx > len(SOFTWARE_CATALOG):
+            return error(f"Invalid item. Range: 1-{len(SOFTWARE_CATALOG)}.")
+
+        name, stype, ver, size, cost = SOFTWARE_CATALOG[idx - 1]
+
+        gs = db.session.get(GameSession, gsid)
+        if not gs:
+            return error("No active game session.")
+
+        if gs.balance < cost:
+            return error(f"Insufficient credits. Need {cost}c, have {gs.balance}c.")
+
+        # Check if player already owns this software type
+        existing = Software.query.filter_by(
+            game_session_id=gsid, software_type=stype
+        ).first()
+        if existing:
+            return warning(f"You already own {existing.name}.")
+
+        # Purchase
+        gs.balance -= cost
+        sw = Software(
+            game_session_id=gsid,
+            name=name,
+            version=ver,
+            software_type=stype,
+            size=size,
+            cost=cost,
+        )
+        db.session.add(sw)
+        db.session.commit()
+
+        return success(f"Purchased {name} v{ver} for {cost} credits. Balance: {gs.balance}c.")
+
+    return None

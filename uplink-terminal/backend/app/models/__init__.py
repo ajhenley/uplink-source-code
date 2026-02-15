@@ -8,6 +8,10 @@ from .data_file import DataFile
 from .access_log import AccessLog
 from .player_link import PlayerLink
 from .connection import Connection
+from .email import Email
+from .mission import Mission
+from .software import Software
+from .running_tool import RunningTool
 
 __all__ = [
     "UserAccount",
@@ -21,4 +25,8 @@ __all__ = [
     "AccessLog",
     "PlayerLink",
     "Connection",
+    "Email",
+    "Mission",
+    "Software",
+    "RunningTool",
 ]

@@ -33,6 +33,7 @@ def cmd_status(args, session):
     """Show current game status."""
     from ..extensions import db
     from ..models import GameSession, Connection
+    from ..game.constants import get_rating_name
 
     gs = db.session.get(GameSession, session.game_session_id)
     if not gs:
@@ -42,6 +43,7 @@ def cmd_status(args, session):
     hours = gs.play_time_hours
     speed_labels = {0: "Paused", 1: "Normal", 3: "Fast", 8: "MegaFast"}
     speed = speed_labels.get(gs.speed_multiplier, f"x{gs.speed_multiplier}")
+    rating_name = get_rating_name(gs.uplink_rating)
 
     lines = [
         header("SYSTEM STATUS"),
@@ -49,6 +51,7 @@ def cmd_status(args, session):
         f"  {cyan('Agent:')}      {bright_green(session.username)}",
         f"  {cyan('Session:')}    {dim(gs.name)}",
         f"  {cyan('Balance:')}    {green(f'{gs.balance} credits')}",
+        f"  {cyan('Rating:')}     {bright_green(f'{rating_name}')} {dim(f'({gs.uplink_rating})')}",
         f"  {cyan('Play time:')}  {dim(f'{hours:.1f}h')}",
         f"  {cyan('Game time:')}  {dim(f'{gs.game_time_ticks} ticks')}",
         f"  {cyan('Speed:')}      {dim(speed)}",

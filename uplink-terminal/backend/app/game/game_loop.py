@@ -1,4 +1,4 @@
-"""5Hz background game loop with trace advancement."""
+"""5Hz background game loop with trace advancement, tool ticking, and mission management."""
 
 import threading
 import time
@@ -24,6 +24,8 @@ def start_game_loop(app):
 def tick():
     """Advance one game tick for all active in-game sessions."""
     from ..models import GameSession, Connection, Computer
+    from .tool_engine import tick_tools
+    from .mission_engine import generate_missions, check_mission_expiry
 
     active_sessions = [
         ts for ts in sessions.values()
@@ -41,7 +43,25 @@ def tick():
         # Advance game time
         gs.game_time_ticks += gs.speed_multiplier
 
-        # Advance trace if active
+        # --- Tool advancement ---
+        tool_events = tick_tools(gs.id, gs.speed_multiplier, ts)
+        _push_tool_events(ts, tool_events)
+
+        # --- Mission generation (every ~200 ticks) ---
+        if gs.game_time_ticks % 200 < gs.speed_multiplier:
+            from ..models import Mission
+            from .constants import MISSION_AVAILABLE
+            available_count = Mission.query.filter_by(
+                game_session_id=gs.id, status=MISSION_AVAILABLE
+            ).count()
+            if available_count < 5:
+                generate_missions(gs.id, count=3 - min(available_count, 2))
+
+        # --- Mission expiry (every ~100 ticks) ---
+        if gs.game_time_ticks % 100 < gs.speed_multiplier:
+            check_mission_expiry(gs.id)
+
+        # --- Trace advancement ---
         conn = Connection.query.filter_by(
             game_session_id=gs.id
         ).first()
@@ -65,6 +85,54 @@ def tick():
         _check_trace_warnings(ts, conn, computer, gs)
 
     db.session.commit()
+
+
+def _push_tool_events(ts, events):
+    """Push tool progress/completion events via WebSocket."""
+    from ..extensions import socketio
+    from ..terminal.output import success, info, warning
+    from .screen_renderer import render_screen
+    from ..models import Computer
+
+    if not events:
+        return
+
+    sid = ts.sid
+    for rt, event_type, value in events:
+        tool_name = rt.tool_type.replace("_", " ").title()
+
+        if event_type == "completed":
+            # Build completion message
+            if rt.tool_type == "PASSWORD_BREAKER":
+                pw = rt.result.get("password", "???")
+                msg = success(f"{tool_name} complete — password: '{pw}'. Access granted.")
+                # Re-render the new screen for the player
+                if ts.is_connected:
+                    comp = Computer.query.filter_by(
+                        game_session_id=ts.game_session_id,
+                        ip=ts.current_computer_ip,
+                    ).first()
+                    if comp:
+                        screen = comp.get_screen(ts.current_screen_index)
+                        if screen:
+                            msg += "\n" + render_screen(comp, screen, ts)
+            elif rt.tool_type == "FILE_COPIER":
+                msg = success(f"{tool_name} complete — '{rt.target_param}' copied to gateway.")
+            elif rt.tool_type == "FILE_DELETER":
+                msg = success(f"{tool_name} complete — '{rt.target_param}' deleted.")
+            elif rt.tool_type == "LOG_DELETER":
+                count = rt.result.get("logs_wiped", 0)
+                msg = success(f"{tool_name} complete — {count} log(s) wiped.")
+            else:
+                msg = success(f"{tool_name} complete.")
+
+            socketio.emit("output", {"text": "\n" + msg + "\n"}, to=sid)
+            socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+
+        elif event_type == "milestone":
+            msg = info(f"{tool_name}: {value}% complete...")
+            socketio.emit("output", {"text": "\n" + msg + "\n"}, to=sid)
+            socketio.emit("prompt", {"text": ts.prompt}, to=sid)
 
 
 def _check_trace_warnings(ts, conn, computer, gs):

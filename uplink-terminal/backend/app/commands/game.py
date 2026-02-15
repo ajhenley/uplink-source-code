@@ -1,4 +1,5 @@
-"""In-game commands: links, connect, dc, look, map, internic, addlink, rmlink, trace, speed."""
+"""In-game commands: links, connect, dc, look, map, internic, addlink, rmlink, trace, speed,
+email, read, reply, software, run, stop, tools, buy."""
 
 from ..terminal.session import SessionState
 from ..terminal.output import (
@@ -7,6 +8,7 @@ from ..terminal.output import (
 from ..extensions import db
 from ..models import (
     GameSession, Computer, PlayerLink, Connection, VLocation, AccessLog,
+    Email, Software, RunningTool,
 )
 from ..game.constants import *
 from ..game.screen_renderer import render_screen
@@ -320,6 +322,220 @@ def cmd_speed(args, session):
     return success(f"Speed set to {label} (x{speed}).")
 
 
+def cmd_email(args, session):
+    """Show email inbox."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    emails = (
+        Email.query
+        .filter_by(game_session_id=session.game_session_id)
+        .order_by(Email.game_tick_sent.desc())
+        .all()
+    )
+
+    if not emails:
+        return info("No emails.")
+
+    lines = [header("INBOX"), ""]
+    for i, e in enumerate(emails, 1):
+        read_marker = dim(" ") if e.is_read else bright_green("*")
+        lines.append(
+            f"  {read_marker} {bright_green(str(i) + '.')} "
+            f"{green(e.subject[:40])}"
+        )
+        lines.append(f"      {dim(f'From: {e.from_addr}')}")
+    lines.append("")
+    lines.append(dim(f"  {len(emails)} email(s). Type 'read <#>' to read."))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_read(args, session):
+    """Read an email by number."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    if not args:
+        return error("Usage: read <#>")
+
+    try:
+        idx = int(args[0])
+    except ValueError:
+        return error("Usage: read <#>")
+
+    emails = (
+        Email.query
+        .filter_by(game_session_id=session.game_session_id)
+        .order_by(Email.game_tick_sent.desc())
+        .all()
+    )
+
+    if idx < 1 or idx > len(emails):
+        return error(f"Invalid email number. You have {len(emails)} email(s).")
+
+    e = emails[idx - 1]
+    e.is_read = True
+    db.session.commit()
+
+    lines = [
+        "",
+        dim("=" * 56),
+        f"  {cyan('From:')}    {green(e.from_addr)}",
+        f"  {cyan('To:')}      {dim(e.to_addr)}",
+        f"  {cyan('Subject:')} {bright_green(e.subject)}",
+        dim("=" * 56),
+        "",
+    ]
+    for line in e.body.split("\n"):
+        lines.append(f"  {green(line)}")
+    lines.append("")
+    lines.append(dim(f"  Type 'reply {idx} <message>' to reply."))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_reply(args, session):
+    """Reply to an email (triggers mission completion check)."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    if not args:
+        return error("Usage: reply <#> <message>")
+
+    try:
+        idx = int(args[0])
+    except ValueError:
+        return error("Usage: reply <#> <message>")
+
+    reply_text = " ".join(args[1:]) if len(args) > 1 else ""
+
+    emails = (
+        Email.query
+        .filter_by(game_session_id=session.game_session_id)
+        .order_by(Email.game_tick_sent.desc())
+        .all()
+    )
+
+    if idx < 1 or idx > len(emails):
+        return error(f"Invalid email number. You have {len(emails)} email(s).")
+
+    e = emails[idx - 1]
+
+    # Check if this email is related to a mission
+    from ..game.mission_engine import find_accepted_mission_for_email, check_mission_completion
+
+    mission = find_accepted_mission_for_email(session.game_session_id, e)
+    if mission:
+        ok, msg = check_mission_completion(session.game_session_id, mission.id)
+        if ok:
+            return success(msg)
+        return warning(msg)
+
+    return info(f"Reply sent to {e.from_addr}.")
+
+
+def cmd_software(args, session):
+    """List owned software."""
+    sw_list = Software.query.filter_by(
+        game_session_id=session.game_session_id
+    ).all()
+
+    if not sw_list:
+        return info("No software installed. Visit the Uplink software shop.")
+
+    lines = [header("SOFTWARE"), ""]
+    for i, sw in enumerate(sw_list, 1):
+        lines.append(
+            f"  {bright_green(str(i) + '.')} {green(sw.name)} "
+            f"{dim(f'v{sw.version}')}  "
+            f"{dim(f'[{sw.software_type}]')}  "
+            f"{dim(f'{sw.size} GQ')}"
+        )
+    lines.append("")
+    lines.append(dim(f"  {len(sw_list)} tool(s). Use 'run <tool>' when connected."))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_run(args, session):
+    """Start a hacking tool on the connected system."""
+    if not session.is_connected:
+        return error("Not connected. Use 'connect <ip|#>' first.")
+
+    if not args:
+        return error("Usage: run <tool> [param]\n"
+                      "  Tools: password_breaker, file_copier <file>, "
+                      "file_deleter <file>, log_deleter")
+
+    tool_name = args[0].lower()
+    tool_type = TOOL_ALIASES.get(tool_name)
+    if not tool_type:
+        return error(
+            f"Unknown tool: '{tool_name}'. Available: "
+            + ", ".join(sorted(TOOL_ALIASES.keys()))
+        )
+
+    target_param = args[1] if len(args) > 1 else None
+
+    # FILE_COPIER and FILE_DELETER require a filename
+    if tool_type in (TOOL_FILE_COPIER, TOOL_FILE_DELETER) and not target_param:
+        return error(f"Usage: run {tool_name} <filename>")
+
+    from ..game.tool_engine import start_tool
+    ok, msg = start_tool(session, tool_type, session.current_computer_ip, target_param)
+    if ok:
+        return success(msg)
+    return error(msg)
+
+
+def cmd_stop(args, session):
+    """Stop a running hacking tool."""
+    if not session.is_connected:
+        return error("Not connected.")
+
+    if not args:
+        return error("Usage: stop <tool>")
+
+    tool_name = args[0].lower()
+    tool_type = TOOL_ALIASES.get(tool_name)
+    if not tool_type:
+        return error(f"Unknown tool: '{tool_name}'.")
+
+    from ..game.tool_engine import stop_tool
+    ok, msg = stop_tool(session, tool_type)
+    if ok:
+        return success(msg)
+    return error(msg)
+
+
+def cmd_tools(args, session):
+    """Show running tools and their progress."""
+    if not session.is_connected:
+        return error("Not connected.")
+
+    from ..game.tool_engine import get_running_tools
+    tools = get_running_tools(session.game_session_id)
+
+    if not tools:
+        return info("No tools running.")
+
+    lines = [header("RUNNING TOOLS"), ""]
+    for rt in tools:
+        bar_width = 25
+        filled = int(bar_width * rt.progress / 100)
+        bar = bright_green("#" * filled) + dim("-" * (bar_width - filled))
+        tool_name = rt.tool_type.replace("_", " ").title()
+
+        lines.append(
+            f"  {green(tool_name):<30} [{bar}] {cyan(f'{rt.progress:.0f}%')}"
+        )
+        if rt.target_param:
+            lines.append(f"    {dim(f'Target: {rt.target_param}')}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 # Register all game commands
 registry.register(
     "links", cmd_links,
@@ -374,4 +590,43 @@ registry.register(
     states=[SessionState.IN_GAME],
     usage="speed <0|1|3|8>",
     description="Set game speed",
+)
+registry.register(
+    "email", cmd_email,
+    states=[SessionState.IN_GAME],
+    description="Show email inbox",
+)
+registry.register(
+    "read", cmd_read,
+    states=[SessionState.IN_GAME],
+    usage="read <#>",
+    description="Read an email",
+)
+registry.register(
+    "reply", cmd_reply,
+    states=[SessionState.IN_GAME],
+    usage="reply <#> <text>",
+    description="Reply to an email (mission completion)",
+)
+registry.register(
+    "software", cmd_software,
+    states=[SessionState.IN_GAME],
+    description="List owned software",
+)
+registry.register(
+    "run", cmd_run,
+    states=[SessionState.IN_GAME],
+    usage="run <tool> [param]",
+    description="Start a hacking tool",
+)
+registry.register(
+    "stop", cmd_stop,
+    states=[SessionState.IN_GAME],
+    usage="stop <tool>",
+    description="Stop a running tool",
+)
+registry.register(
+    "tools", cmd_tools,
+    states=[SessionState.IN_GAME],
+    description="Show running tools + progress",
 )

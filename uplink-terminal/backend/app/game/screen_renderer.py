@@ -16,6 +16,8 @@ def render_screen(computer, screen, session=None):
         SCREEN_FILESERVER: _render_fileserver,
         SCREEN_LOGSCREEN: _render_logscreen,
         SCREEN_LINKS: _render_links,
+        SCREEN_BBS: _render_bbs,
+        SCREEN_SHOP: _render_shop,
     }
     renderer = renderers.get(screen.screen_type, _render_unknown)
     return renderer(computer, screen, session)
@@ -163,6 +165,71 @@ def _render_links(computer, screen, session):
         lines.append(dim("  'dc' to disconnect"))
     else:
         lines.append(dim("  Type 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_bbs(computer, screen, session):
+    """Render BBS (Mission Board) screen."""
+    from ..models import Mission
+    from .constants import MISSION_AVAILABLE
+
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    if not session:
+        lines.append(f"  {dim('No session context.')}")
+        return "\n".join(lines)
+
+    missions = Mission.query.filter_by(
+        game_session_id=session.game_session_id,
+        status=MISSION_AVAILABLE,
+    ).all()
+
+    if not missions:
+        lines.append(f"  {dim('No missions available at this time.')}")
+        lines.append(f"  {dim('Check back later.')}")
+    else:
+        for i, m in enumerate(missions, 1):
+            mtype_label = m.mission_type.replace("_", " ").title()
+            lines.append(
+                f"  {bright_green(str(i) + '.')} {green(m.description)}"
+            )
+            lines.append(
+                f"      {dim(mtype_label)}  |  "
+                f"{cyan(f'{m.payment}c')}  |  "
+                f"{dim(m.details[:60])}"
+            )
+        lines.append("")
+        lines.append(f"  {dim(f'{len(missions)} mission(s) available')}")
+
+    lines.append("")
+    lines.append(dim("  Type a number to view details, 'accept <#>' to take a mission"))
+    lines.append(dim("  'back' to return to menu, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_shop(computer, screen, session):
+    """Render software shop screen."""
+    from .constants import SOFTWARE_CATALOG
+
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    if not session:
+        lines.append(f"  {dim('No session context.')}")
+        return "\n".join(lines)
+
+    lines.append(f"  {cyan('Item'):<40} {cyan('Type'):<20} {cyan('Cost')}")
+    lines.append(f"  {dim('-' * 56)}")
+
+    for i, (name, stype, ver, size, cost) in enumerate(SOFTWARE_CATALOG, 1):
+        lines.append(
+            f"  {bright_green(str(i) + '.')} {green(f'{name} v{ver}'):<36} "
+            f"{dim(stype):<20} {yellow(f'{cost}c')}"
+        )
+
+    lines.append("")
+    lines.append(dim("  Type 'buy <#>' to purchase, 'back' to return, 'dc' to disconnect"))
     lines.append("")
     return "\n".join(lines)
 

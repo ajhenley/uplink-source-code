@@ -78,6 +78,93 @@ FILE_NAMES = [
     "classified.dat", "employee_db.dat", "network_map.dat",
 ]
 
+# Screen types (new)
+SCREEN_BBS = "BBS"
+SCREEN_SHOP = "SHOP"
+
 # Game speed labels
 SPEED_LABELS = {0: "Paused", 1: "Normal", 3: "Fast", 8: "MegaFast"}
 VALID_SPEEDS = [0, 1, 3, 8]
+
+# Mission types
+MISSION_STEAL_FILE = "STEAL_FILE"
+MISSION_DESTROY_FILE = "DESTROY_FILE"
+
+# Mission statuses
+MISSION_AVAILABLE = "AVAILABLE"
+MISSION_ACCEPTED = "ACCEPTED"
+MISSION_COMPLETED = "COMPLETED"
+MISSION_FAILED = "FAILED"
+MISSION_EXPIRED = "EXPIRED"
+
+# Tool types (matching software names)
+TOOL_PASSWORD_BREAKER = "PASSWORD_BREAKER"
+TOOL_FILE_COPIER = "FILE_COPIER"
+TOOL_FILE_DELETER = "FILE_DELETER"
+TOOL_LOG_DELETER = "LOG_DELETER"
+TOOL_TRACE_TRACKER = "TRACE_TRACKER"
+
+# Tool tick rates (at 5Hz, speed x1)
+TOOL_TICKS = {
+    "PASSWORD_BREAKER": 45,   # ticks per password char
+    "FILE_COPIER": 45,        # ticks per GQ file size
+    "FILE_DELETER": 9,        # ticks per GQ file size
+    "LOG_DELETER": 60,        # flat ticks
+    "TRACE_TRACKER": 0,       # passive (shows trace %)
+}
+
+# Tool statuses
+TOOL_RUNNING = "RUNNING"
+TOOL_COMPLETED = "COMPLETED"
+TOOL_CANCELLED = "CANCELLED"
+
+# Starting software (free with gateway)
+STARTING_SOFTWARE = [
+    ("Trace Tracker", "TRACE_TRACKER", "1.0", 1, 0),
+]
+
+# Software shop catalog: (name, type, version, size, cost)
+SOFTWARE_CATALOG = [
+    ("Password Breaker", "PASSWORD_BREAKER", "1.0", 2, 1500),
+    ("File Copier", "FILE_COPIER", "1.0", 1, 100),
+    ("File Deleter", "FILE_DELETER", "1.0", 1, 100),
+    ("Log Deleter", "LOG_DELETER", "1.0", 1, 500),
+    ("Trace Tracker", "TRACE_TRACKER", "1.0", 1, 300),
+]
+
+# Mission payments (base, variance fraction)
+MISSION_PAYMENTS = {
+    "STEAL_FILE": (900, 0.3),
+    "DESTROY_FILE": (800, 0.3),
+}
+
+# Uplink rating names
+RATING_NAMES = {
+    0: "Unregistered", 1: "Registered", 2: "Beginner",
+    6: "Novice", 15: "Confident", 35: "Intermediate",
+    60: "Skilled", 90: "Experienced", 125: "Knowledgeable",
+}
+
+# Rating gain per mission type
+RATING_GAIN = {
+    "STEAL_FILE": 3,
+    "DESTROY_FILE": 3,
+}
+
+# Tool name aliases (user-facing name → tool type)
+TOOL_ALIASES = {
+    "password_breaker": "PASSWORD_BREAKER",
+    "file_copier": "FILE_COPIER",
+    "file_deleter": "FILE_DELETER",
+    "log_deleter": "LOG_DELETER",
+    "trace_tracker": "TRACE_TRACKER",
+}
+
+
+def get_rating_name(rating):
+    """Get the rating name for a given numeric rating."""
+    name = "Unregistered"
+    for threshold in sorted(RATING_NAMES.keys()):
+        if rating >= threshold:
+            name = RATING_NAMES[threshold]
+    return name

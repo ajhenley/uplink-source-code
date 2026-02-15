@@ -24,6 +24,7 @@ class GameSession(db.Model):
     speed_multiplier = db.Column(db.Integer, default=1, nullable=False)
     balance = db.Column(db.Integer, default=3000, nullable=False)
     gateway_ip = db.Column(db.String(32), nullable=True)
+    uplink_rating = db.Column(db.Integer, default=0, nullable=False)
 
     user = db.relationship("UserAccount", back_populates="sessions")
 

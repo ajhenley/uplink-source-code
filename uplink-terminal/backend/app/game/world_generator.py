@@ -7,6 +7,7 @@ from ..extensions import db
 from ..models import (
     Company, VLocation, Computer, ComputerScreen,
     SecuritySystem, DataFile, AccessLog, PlayerLink, Connection,
+    Email, Software,
 )
 from .constants import *
 
@@ -98,6 +99,8 @@ def generate_world(game_session_id):
                 title="Uplink Corporation",
                 subtitle="Main Menu",
                 content={"options": [
+                    {"label": "Mission Board (BBS)", "screen": 4},
+                    {"label": "Software Sales", "screen": 5},
                     {"label": "About Uplink", "screen": 2},
                     {"label": "Test Machine Access", "screen": 3},
                 ]})
@@ -119,6 +122,12 @@ def generate_world(game_session_id):
                          "This machine is provided for new agents to practice\n"
                          "their skills. No trace is active."},
                 next_screen=1)
+    _add_screen(uplink_pas.id, 4, SCREEN_BBS,
+                title="Uplink Corporation",
+                subtitle="Mission Board (BBS)")
+    _add_screen(uplink_pas.id, 5, SCREEN_SHOP,
+                title="Uplink Corporation",
+                subtitle="Software Sales")
 
     # --- Uplink Test Machine ---
     _add_location(gsid, IP_UPLINK_TEST, x=420, y=320)
@@ -216,7 +225,41 @@ def generate_world(game_session_id):
     # --- Connection object ---
     db.session.add(Connection(game_session_id=gsid))
 
+    # --- Starting Software ---
+    for name, stype, ver, size, cost in STARTING_SOFTWARE:
+        db.session.add(Software(
+            game_session_id=gsid,
+            name=name,
+            version=ver,
+            software_type=stype,
+            size=size,
+            cost=cost,
+        ))
+
+    # --- Welcome Email ---
+    db.session.add(Email(
+        game_session_id=gsid,
+        subject="Welcome to Uplink Corporation",
+        body=(
+            "Welcome to the Uplink Corporation. Your account has been activated.\n\n"
+            f"Visit our Public Access Server at {IP_UPLINK_PAS} to browse available\n"
+            "missions and purchase software.\n\n"
+            "Your gateway has been configured with a Trace Tracker.\n"
+            "Use 'software' to see your installed tools.\n\n"
+            "Good luck, agent.\n\n"
+            "-- Uplink Corporation"
+        ),
+        from_addr="internal@intl.uplink.co.uk",
+        to_addr="agent@uplink.co.uk",
+        game_tick_sent=0,
+    ))
+
     db.session.commit()
+
+    # --- Initial Missions ---
+    from .mission_engine import generate_missions
+    generate_missions(gsid, count=4)
+
     return gw_ip
 
 
