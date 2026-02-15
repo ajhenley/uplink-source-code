@@ -27,7 +27,7 @@ ACTION_DISCONNECT_FINE_ARREST = "DISCONNECT,FINE,ARREST"
 
 # Company name pools
 COMPANY_NAMES = [
-    "ARC Technologies", "Protovision Networks", "OmniCorp Systems",
+    "Protovision Networks", "OmniCorp Systems",
     "DataVault Inc", "NexGen Computing", "CyberDyne Industries",
     "Sentinel Security", "Meridian Group", "Axiom Research",
     "Pinnacle Software", "Quantum Solutions", "Helix Dynamics",
@@ -229,6 +229,9 @@ MISSION_PAYMENTS = {
     "CHANGE_CRIMINAL": (2500, 0.3),
     "LAN_FILE": (2500, 0.3),
     "LAN_DESTROY": (2200, 0.3),
+    "PLOT_STEAL": (6000, 0.0),
+    "PLOT_DESTROY": (8000, 0.0),
+    "PLOT_DEPLOY": (12000, 0.0),
 }
 
 # Uplink rating names
@@ -247,6 +250,9 @@ RATING_GAIN = {
     "CHANGE_CRIMINAL": 6,
     "LAN_FILE": 7,
     "LAN_DESTROY": 7,
+    "PLOT_STEAL": 5,
+    "PLOT_DESTROY": 5,
+    "PLOT_DEPLOY": 10,
 }
 
 # Tool name aliases (user-facing name → tool type)
@@ -469,3 +475,92 @@ def get_version_speed_multiplier(version_str):
     except (TypeError, ValueError):
         return 1.0
     return 1.0 + (version - 1.0) * VERSION_SPEED_STEP
+
+
+# --- Plot system (Revelation) ---
+# Company IPs
+IP_ARC = "327.868.12.450"
+IP_ARUNMOR = "194.255.38.901"
+
+# Faction identifiers
+FACTION_NONE = 0
+FACTION_ARUNMOR = 1
+FACTION_ARC = -1
+
+# Plot acts and scenes
+PLOT_ACT_NONE = 0      # Plot hasn't started
+PLOT_ACT_1 = 1          # Introduction — both factions reach out
+PLOT_ACT_2 = 2          # Bidding war — escalating offers
+PLOT_ACT_3 = 3          # Player chooses a side
+PLOT_ACT_4 = 4          # (Phase 14) Special missions
+PLOT_ACT_5 = 5          # (Phase 14) Virus/counter-virus deployment
+PLOT_ACT_6 = 6          # (Phase 14) Endgame
+
+# Scene identifiers within each act
+# Act 1 scenes
+SCENE_1_INTRO = "1_intro"           # Uplink sends "strange events" email
+SCENE_1_ARC_CONTACT = "1_arc"       # ARC contacts player
+SCENE_1_ARUNMOR_CONTACT = "1_arun"  # Arunmor contacts player
+# Act 2 scenes
+SCENE_2_ARC_OFFER = "2_arc_offer"     # ARC: "join us, test Revelation"
+SCENE_2_ARUN_OFFER = "2_arun_offer"   # Arunmor: "help us stop the virus"
+SCENE_2_ARC_SWEETEN = "2_arc_sweet"   # ARC raises offer
+SCENE_2_ARUN_SWEETEN = "2_arun_sweet" # Arunmor raises offer
+SCENE_2_NEWS_VIRUS = "2_news_virus"   # News: systems going offline
+# Act 3 scenes
+SCENE_3_CHOICE_PROMPT = "3_choice"     # Both factions send final emails
+SCENE_3_PLAYER_CHOSE = "3_chose"       # Player replied → loyalty locked
+
+# Plot timing (in game ticks)
+PLOT_START_TICK = 800           # ~2.5 min at 1x (after a few missions)
+PLOT_SCENE_INTERVAL = 400       # ~80s between scenes
+PLOT_ACT2_START = 1600          # ~5 min at 1x
+PLOT_ACT3_START = 2800          # ~9 min at 1x
+
+# Plot email addresses
+PLOT_EMAIL_ARC = "admin@arc.net"
+PLOT_EMAIL_ARUNMOR = "research@arunmor.com"
+PLOT_EMAIL_UPLINK_INTERNAL = "internal@intl.uplink.co.uk"
+
+# Plot mission payments
+PLOT_PAYMENT_ARC = 8000
+PLOT_PAYMENT_ARUNMOR = 7000
+
+# Revelation virus version tracking
+REVELATION_INITIAL_VERSION = "1.0"
+FAITH_INITIAL_VERSION = "1.0"
+
+# Act 4 scenes
+SCENE_4_MISSION_1 = "4_mission1"       # First faction mission assigned
+SCENE_4_MISSION_1_DONE = "4_m1done"    # First mission completed
+SCENE_4_MISSION_2 = "4_mission2"       # Second faction mission assigned
+SCENE_4_MISSION_2_DONE = "4_m2done"    # Second mission completed
+SCENE_4_NEWS_ESCALATION = "4_news"     # News: virus spreading further
+
+# Act 5 scenes
+SCENE_5_DEPLOYMENT = "5_deploy"         # Final deployment mission
+SCENE_5_WARFARE_1 = "5_war1"           # News: viral warfare begins
+SCENE_5_WARFARE_2 = "5_war2"           # News: warfare intensifies
+SCENE_5_RESOLUTION = "5_resolve"       # Outcome determined
+
+# Act 6 scenes
+SCENE_6_AFTERMATH = "6_aftermath"       # News: aftermath articles
+SCENE_6_SENTENCING = "6_sentence"       # News: ARC leader sentenced
+SCENE_6_EPILOGUE = "6_epilogue"         # Final retrospective, plot complete
+SCENE_6_COMPLETE = "6_complete"         # Plot fully done
+
+# Plot mission types
+MISSION_PLOT_STEAL = "PLOT_STEAL"       # Steal data from rival faction
+MISSION_PLOT_DESTROY = "PLOT_DESTROY"   # Destroy rival's research
+MISSION_PLOT_DEPLOY = "PLOT_DEPLOY"     # Deploy virus/counter-virus
+
+# Act 4-6 timing (in game ticks, relative — scheduled dynamically after loyalty lock)
+PLOT_ACT4_DELAY = 400        # ticks after loyalty lock before Act 4 starts
+PLOT_MISSION_INTERVAL = 600  # ticks between missions
+PLOT_ACT5_DELAY = 400        # ticks after Act 4 completes before Act 5
+PLOT_ACT6_DELAY = 600        # ticks after Act 5 resolves before Act 6 epilogue
+
+# Plot mission payments (Act 4-5)
+PLOT_MISSION_1_PAYMENT = 6000
+PLOT_MISSION_2_PAYMENT = 8000
+PLOT_DEPLOY_PAYMENT = 12000

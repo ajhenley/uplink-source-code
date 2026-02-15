@@ -464,6 +464,12 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_lan_file(gs, mission)
     elif mission.mission_type == MISSION_LAN_DESTROY:
         ok, msg = _check_lan_destroy(gs, mission)
+    elif mission.mission_type == MISSION_PLOT_STEAL:
+        ok, msg = _check_steal_file(gs, mission)
+    elif mission.mission_type == MISSION_PLOT_DESTROY:
+        ok, msg = _check_destroy_file(gs, mission)
+    elif mission.mission_type == MISSION_PLOT_DEPLOY:
+        ok, msg = _check_plot_deploy_file(gs, mission)
     else:
         return False, "Unknown mission type."
 
@@ -856,6 +862,25 @@ def _check_lan_destroy(gs, mission):
             )
 
     return True, "File destroyed."
+
+
+def _check_plot_deploy_file(gs, mission):
+    """Verify the deploy file exists on the target computer (uploaded by player)."""
+    target_comp = Computer.query.filter_by(
+        game_session_id=gs.id, ip=mission.target_ip
+    ).first()
+    if not target_comp:
+        return False, "Target computer not found."
+
+    uploaded = DataFile.query.filter_by(
+        computer_id=target_comp.id, filename=mission.target_filename
+    ).first()
+    if not uploaded:
+        return False, (
+            f"File '{mission.target_filename}' not found on {mission.target_ip}. "
+            f"Use File Copier to upload it from your gateway."
+        )
+    return True, "File deployed."
 
 
 def check_mission_expiry(game_session_id):

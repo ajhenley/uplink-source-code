@@ -470,6 +470,16 @@ def cmd_reply(args, session):
 
     e = emails[idx - 1]
 
+    # Check if this is a plot email first
+    from ..game.plot_engine import is_plot_email, handle_plot_reply
+    if is_plot_email(e):
+        gs = db.session.get(GameSession, session.game_session_id)
+        if gs:
+            handled, msg = handle_plot_reply(gs, e)
+            if handled:
+                return success(msg)
+            return warning(msg)
+
     # Check if this email is related to a mission
     from ..game.mission_engine import find_accepted_mission_for_email, check_mission_completion
 
@@ -1142,4 +1152,99 @@ registry.register(
     "news", cmd_news,
     states=[SessionState.IN_GAME],
     description="Quick-connect to news network",
+)
+
+
+def cmd_plot(args, session):
+    """Show current plot status — act, loyalty, faction messages."""
+    gs = db.session.get(GameSession, session.game_session_id)
+    if not gs:
+        return error("No active game session.")
+
+    from ..game.plot_engine import get_plot_status
+    from ..game.constants import (
+        PLOT_ACT_NONE, PLOT_ACT_4, PLOT_ACT_5, PLOT_ACT_6,
+        FACTION_NONE, FACTION_ARC, FACTION_ARUNMOR,
+    )
+
+    status = get_plot_status(gs)
+
+    lines = [header("PLOT STATUS"), ""]
+    lines.append(f"  {cyan('Act:')}     {green(status['act_name'])}")
+
+    if status["loyalty"] == FACTION_NONE:
+        lines.append(f"  {cyan('Loyalty:')} {dim('Neutral')}")
+    elif status["loyalty"] == FACTION_ARC:
+        lines.append(f"  {cyan('Loyalty:')} {yellow('ARC Technologies')}")
+    elif status["loyalty"] == FACTION_ARUNMOR:
+        lines.append(f"  {cyan('Loyalty:')} {bright_green('Arunmor Corporation')}")
+
+    lines.append("")
+
+    # Plot complete
+    if status.get("plot_complete"):
+        ending = status.get("ending", "")
+        if ending == "arc_victory":
+            lines.append(f"  {bright_green('PLOT COMPLETE')}")
+            lines.append(f"  {green('Ending: Revelation spreads. ARC Technologies wins.')}")
+            lines.append(f"  {dim('The digital landscape has been permanently altered.')}")
+        else:
+            lines.append(f"  {bright_green('PLOT COMPLETE')}")
+            lines.append(f"  {green('Ending: Faith neutralizes Revelation. Arunmor wins.')}")
+            lines.append(f"  {dim('The network is safe — thanks to you.')}")
+        lines.append("")
+        return "\n".join(lines)
+
+    # Act-specific status
+    if status["act"] == PLOT_ACT_NONE:
+        lines.append(f"  {dim('The story has not yet begun.')}")
+        lines.append(f"  {dim('Continue completing missions...')}")
+    elif status["loyalty"] == FACTION_NONE and status["act"] >= 2:
+        lines.append(f"  {info('Both factions are awaiting your response.')}")
+        lines.append(f"  {dim('Reply to an ARC or Arunmor email to choose a side.')}")
+    elif status["act"] == PLOT_ACT_4:
+        loyalty_name = status["loyalty_name"]
+        lines.append(f"  {info(f'You are working with {loyalty_name}.')}")
+        objective = status.get("current_objective", "")
+        if objective:
+            lines.append(f"  {cyan('Objective:')} {green(objective)}")
+        target = status.get("current_target", "")
+        if target:
+            lines.append(f"  {cyan('Target:')}    {dim(target)}")
+        target_file = status.get("current_file", "")
+        if target_file:
+            lines.append(f"  {cyan('File:')}      {dim(target_file)}")
+    elif status["act"] == PLOT_ACT_5:
+        loyalty_name = status["loyalty_name"]
+        lines.append(f"  {info(f'You are working with {loyalty_name}.')}")
+        objective = status.get("current_objective", "")
+        if objective:
+            lines.append(f"  {cyan('Objective:')} {green(objective)}")
+        target = status.get("current_target", "")
+        if target:
+            lines.append(f"  {cyan('Target:')}    {dim(target)}")
+        target_file = status.get("current_file", "")
+        if target_file:
+            lines.append(f"  {cyan('File:')}      {dim(target_file)}")
+        if not objective or "progress" in objective.lower():
+            lines.append(f"  {warning('The virus war is underway. Watch the news.')}")
+    elif status["act"] == PLOT_ACT_6:
+        loyalty_name = status["loyalty_name"]
+        lines.append(f"  {info(f'You are working with {loyalty_name}.')}")
+        lines.append(f"  {dim('The war is over. The aftermath unfolds...')}")
+    elif status["loyalty"] != FACTION_NONE:
+        loyalty_name = status["loyalty_name"]
+        lines.append(f"  {info(f'You are working with {loyalty_name}.')}")
+        lines.append(f"  {dim('Stand by for further instructions.')}")
+    else:
+        lines.append(f"  {dim('Events are unfolding. Watch your inbox.')}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "plot", cmd_plot,
+    states=[SessionState.IN_GAME],
+    description="Show Revelation plot status",
 )
