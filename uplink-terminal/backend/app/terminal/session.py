@@ -23,6 +23,11 @@ class TerminalSession:
         self.current_computer_ip = None
         self.current_screen_index = 0
         self.authenticated_on_computer = False
+        self.current_lan_node = None
+
+    @property
+    def is_in_lan(self):
+        return self.current_lan_node is not None
 
     @property
     def prompt(self):
@@ -69,9 +74,11 @@ class TerminalSession:
         self.current_computer_ip = ip
         self.current_screen_index = start_screen
         self.authenticated_on_computer = False
+        self.current_lan_node = None
 
     def disconnect(self):
         """Disconnect from current computer."""
         self.current_computer_ip = None
         self.current_screen_index = 0
         self.authenticated_on_computer = False
+        self.current_lan_node = None

@@ -15,6 +15,7 @@ from .running_tool import RunningTool
 from .hardware import Hardware
 from .bank_account import BankAccount
 from .connection_history import ConnectionHistory
+from .lan_node import LanNode
 
 __all__ = [
     "UserAccount",
@@ -35,4 +36,5 @@ __all__ = [
     "Hardware",
     "BankAccount",
     "ConnectionHistory",
+    "LanNode",
 ]

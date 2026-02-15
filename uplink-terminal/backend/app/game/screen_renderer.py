@@ -23,6 +23,7 @@ def render_screen(computer, screen, session=None):
         SCREEN_BANKTRANSFER: _render_banktransfer,
         SCREEN_NEWS: _render_news,
         SCREEN_RANKINGS: _render_rankings,
+        SCREEN_LAN: _render_lan,
     }
     renderer = renderers.get(screen.screen_type, _render_unknown)
     return renderer(computer, screen, session)
@@ -438,6 +439,132 @@ def _render_rankings(computer, screen, session):
 
     lines.append("")
     lines.append(dim("  'back' to return to menu, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_lan(computer, screen, session):
+    """Render LAN screen with ASCII grid map and node info."""
+    from ..models import LanNode
+    from .constants import LAN_NODE_CHARS, LAN_ROUTER, LAN_FILE_SERVER, LAN_MAINFRAME
+
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    if not session:
+        lines.append(f"  {dim('No session context.')}")
+        return "\n".join(lines)
+
+    lan_nodes = LanNode.query.filter_by(computer_id=computer.id).order_by(LanNode.node_index).all()
+    if not lan_nodes:
+        lines.append(f"  {dim('No LAN detected on this system.')}")
+        return "\n".join(lines)
+
+    # Build lookup by index and by grid position
+    by_index = {n.node_index: n for n in lan_nodes}
+    by_pos = {(n.row, n.col): n for n in lan_nodes}
+
+    current_idx = session.current_lan_node
+    if current_idx is None:
+        current_idx = 0
+
+    # Determine which positions are adjacent to discovered nodes (for "?" rendering)
+    discovered_indices = {n.node_index for n in lan_nodes if n.is_discovered}
+    adjacent_to_discovered = set()
+    for n in lan_nodes:
+        if n.is_discovered:
+            for adj_idx in n.connections:
+                if adj_idx not in discovered_indices:
+                    adj_node = by_index.get(adj_idx)
+                    if adj_node:
+                        adjacent_to_discovered.add((adj_node.row, adj_node.col))
+
+    lines.append(f"  {cyan('LAN Network Map')}")
+    lines.append("")
+
+    # Render grid: 3 rows x 4 cols
+    for row in range(3):
+        # Node row
+        node_line = "  "
+        # Connection row (horizontal between cols)
+        conn_line = "  "
+        for col in range(4):
+            node = by_pos.get((row, col))
+            if node and node.is_discovered:
+                char = LAN_NODE_CHARS.get(node.node_type, "?")
+                if node.node_index == current_idx:
+                    # Current node: highlighted with brackets
+                    if node.is_locked and not node.is_bypassed:
+                        cell = yellow(f"[{char}]")
+                    else:
+                        cell = bright_green(f"[{char}]")
+                else:
+                    if node.is_locked and not node.is_bypassed:
+                        cell = f" {yellow(char)} "
+                    else:
+                        cell = f" {green(char)} "
+            elif (row, col) in adjacent_to_discovered:
+                cell = f" {dim('?')} "
+            else:
+                cell = "   "
+
+            node_line += cell
+
+            # Horizontal connection to next col
+            if col < 3:
+                # Check if there's a connection between (row, col) and (row, col+1)
+                left = by_pos.get((row, col))
+                right = by_pos.get((row, col + 1))
+                if (left and right and left.is_discovered and right.is_discovered
+                        and right.node_index in left.connections):
+                    node_line += dim("---")
+                else:
+                    node_line += "   "
+
+        lines.append(node_line)
+
+        # Vertical connections to next row
+        if row < 2:
+            vert_line = "  "
+            for col in range(4):
+                top = by_pos.get((row, col))
+                bottom = by_pos.get((row + 1, col))
+                if (top and bottom and top.is_discovered and bottom.is_discovered
+                        and bottom.node_index in top.connections):
+                    vert_line += f" {dim('|')} "
+                else:
+                    vert_line += "   "
+                if col < 3:
+                    vert_line += "   "  # spacing for horizontal connections
+            lines.append(vert_line)
+
+    lines.append("")
+
+    # Current node info
+    current_node = by_index.get(current_idx)
+    if current_node:
+        status_str = green("OPEN") if (not current_node.is_locked or current_node.is_bypassed) else yellow("LOCKED")
+        lines.append(f"  {cyan('Current:')} {bright_green(current_node.label)} ({current_node.node_type})")
+        lines.append(f"  {cyan('Status:')}  {status_str}   {cyan('Security:')} {dim(str(current_node.security_level))}")
+
+        # Show adjacent nodes
+        adj_nodes = []
+        for adj_idx in current_node.connections:
+            adj = by_index.get(adj_idx)
+            if adj and adj.is_discovered:
+                if adj.is_locked and not adj.is_bypassed:
+                    adj_status = yellow("[LOCKED]")
+                else:
+                    adj_status = green("[OPEN]")
+                adj_nodes.append((adj_idx, adj.label, adj_status))
+
+        if adj_nodes:
+            lines.append("")
+            lines.append(f"  {cyan('Adjacent nodes:')}")
+            for i, (idx, label, st) in enumerate(adj_nodes):
+                lines.append(f"    {bright_green(str(i + 1) + '.')} {green(label)} {st}")
+
+    lines.append("")
+    lines.append(dim("  Commands: scan, move <#>, hack, ls, download <file>, exit"))
     lines.append("")
     return "\n".join(lines)
 

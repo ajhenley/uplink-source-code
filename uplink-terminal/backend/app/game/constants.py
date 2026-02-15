@@ -89,6 +89,7 @@ SCREEN_BANKACCOUNTS = "BANKACCOUNTS"
 SCREEN_BANKTRANSFER = "BANKTRANSFER"
 SCREEN_NEWS = "NEWS"
 SCREEN_RANKINGS = "RANKINGS"
+SCREEN_LAN = "LAN"
 
 # Game speed labels
 SPEED_LABELS = {0: "Paused", 1: "Normal", 3: "Fast", 8: "MegaFast"}
@@ -100,6 +101,7 @@ MISSION_DESTROY_FILE = "DESTROY_FILE"
 MISSION_STEAL_MONEY = "STEAL_MONEY"
 MISSION_CHANGE_ACADEMIC = "CHANGE_ACADEMIC"
 MISSION_CHANGE_CRIMINAL = "CHANGE_CRIMINAL"
+MISSION_LAN_FILE = "LAN_FILE"
 
 # Mission statuses
 MISSION_AVAILABLE = "AVAILABLE"
@@ -224,6 +226,7 @@ MISSION_PAYMENTS = {
     "STEAL_MONEY": (3000, 0.4),
     "CHANGE_ACADEMIC": (1500, 0.3),
     "CHANGE_CRIMINAL": (2500, 0.3),
+    "LAN_FILE": (2500, 0.3),
 }
 
 # Uplink rating names
@@ -240,6 +243,7 @@ RATING_GAIN = {
     "STEAL_MONEY": 8,
     "CHANGE_ACADEMIC": 5,
     "CHANGE_CRIMINAL": 6,
+    "LAN_FILE": 7,
 }
 
 # Tool name aliases (user-facing name → tool type)
@@ -386,6 +390,34 @@ RATING_UNLOCK_HINTS = {
     60: "Skilled tier reached. Government systems are within your reach.",
     90: "Experienced agent. Few systems can withstand your expertise.",
     125: "Knowledgeable — the highest rating tier. You are elite.",
+}
+
+
+# --- LAN system constants ---
+LAN_ROUTER = "ROUTER"
+LAN_TERMINAL = "TERMINAL"
+LAN_LOCK = "LOCK"
+LAN_FILE_SERVER = "FILE_SERVER"
+LAN_MAINFRAME = "MAINFRAME"
+
+LAN_MIN_COMPANY_SIZE = 8
+LAN_MAX_COMPANIES = 4
+
+LAN_FILE_NAMES = [
+    "classified_ops.dat", "research_alpha.dat", "prototype_specs.dat",
+    "merger_plans.dat", "defense_contract.dat", "genome_data.dat",
+    "encryption_keys.dat", "satellite_telemetry.dat", "agent_roster.dat",
+    "financial_audit.dat", "patent_portfolio.dat", "supply_chain.dat",
+    "internal_memo.dat", "project_nexus.dat", "board_minutes.dat",
+    "security_blueprint.dat", "trade_secrets.dat", "r_and_d_report.dat",
+]
+
+LAN_NODE_CHARS = {
+    LAN_ROUTER: "R",
+    LAN_TERMINAL: "T",
+    LAN_LOCK: "L",
+    LAN_FILE_SERVER: "F",
+    LAN_MAINFRAME: "M",
 }
 
 

@@ -4,7 +4,7 @@ import random
 
 from ..extensions import db
 from ..models import (
-    Mission, Email, GameSession, Computer, DataFile, PlayerLink, BankAccount,
+    Mission, Email, GameSession, Computer, DataFile, PlayerLink, BankAccount, LanNode,
 )
 from .constants import *
 
@@ -76,6 +76,23 @@ def generate_missions(game_session_id, count=None):
     if criminal_records and gs.uplink_rating >= 6:
         mission_types.append(MISSION_CHANGE_CRIMINAL)
 
+    # LAN file missions (need ISMs with LAN file/mainframe nodes containing files)
+    viable_lan_targets = []
+    if gs.uplink_rating >= 8:
+        for ism in isms:
+            lan_file_nodes = LanNode.query.filter(
+                LanNode.computer_id == ism.id,
+                LanNode.node_type.in_([LAN_FILE_SERVER, LAN_MAINFRAME]),
+            ).all()
+            nodes_with_files = [
+                n for n in lan_file_nodes if n.content.get("files")
+            ]
+            if nodes_with_files:
+                viable_lan_targets.append((ism, nodes_with_files))
+
+    if viable_lan_targets:
+        mission_types.append(MISSION_LAN_FILE)
+
     for _ in range(count):
         mtype = random.choice(mission_types)
 
@@ -91,8 +108,12 @@ def generate_missions(game_session_id, count=None):
             continue
         if mtype == MISSION_CHANGE_CRIMINAL and not criminal_records:
             continue
+        if mtype == MISSION_LAN_FILE and not viable_lan_targets:
+            continue
 
-        if mtype == MISSION_STEAL_MONEY:
+        if mtype == MISSION_LAN_FILE:
+            mission = _generate_lan_file_mission(gs, viable_lan_targets)
+        elif mtype == MISSION_STEAL_MONEY:
             mission = _generate_steal_money_mission(gs, viable_banks)
         elif mtype == MISSION_CHANGE_ACADEMIC:
             mission = _generate_change_academic_mission(gs, academic_comp, academic_records)
@@ -434,6 +455,8 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_change_academic(gs, mission)
     elif mission.mission_type == MISSION_CHANGE_CRIMINAL:
         ok, msg = _check_change_criminal(gs, mission)
+    elif mission.mission_type == MISSION_LAN_FILE:
+        ok, msg = _check_lan_file(gs, mission)
     else:
         return False, "Unknown mission type."
 
@@ -667,6 +690,81 @@ def _check_change_criminal(gs, mission):
         )
 
     return True, "Record updated correctly."
+
+
+def _generate_lan_file_mission(gs, viable_lan_targets):
+    """Generate a LAN_FILE mission — steal a file from a company's LAN."""
+    target_comp, lan_file_nodes = random.choice(viable_lan_targets)
+    target_node = random.choice(lan_file_nodes)
+    files = target_node.content.get("files", [])
+    if not files:
+        return None
+    target_file = random.choice(files)
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_LAN_FILE]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+    employer = random.choice(COMPANY_NAMES)
+
+    description = f"Steal LAN file from {target_comp.company_name}"
+    details = (
+        f"Retrieve '{target_file['name']}' from the {target_comp.company_name} "
+        f"internal LAN network."
+    )
+    full_details = (
+        f"Target: {target_comp.name}\n"
+        f"IP: {target_comp.ip}\n"
+        f"File: {target_file['name']}\n"
+        f"Location: LAN {target_node.node_type} ({target_node.label})\n\n"
+        f"Connect to the ISM, navigate to the Local Area Network,\n"
+        f"and locate the {target_node.node_type.lower().replace('_', ' ')}.\n"
+        f"You will need to scan nodes, hack through security locks,\n"
+        f"and download the file before the trace completes.\n\n"
+        f"A Bypasser tool is required to hack LAN security nodes.\n\n"
+        f"Once you have the file on your gateway, reply to the\n"
+        f"mission email to confirm."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_LAN_FILE,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=target_comp.ip,
+        target_filename=target_file["name"],
+        target_data={
+            "computer_name": target_comp.name,
+            "lan_node_index": target_node.node_index,
+            "filename": target_file["name"],
+        },
+        payment=payment,
+        difficulty=4,
+        min_rating=8,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _check_lan_file(gs, mission):
+    """Verify player has the LAN file on their gateway."""
+    gw = Computer.query.filter_by(
+        game_session_id=gs.id, ip=gs.gateway_ip
+    ).first()
+    if not gw:
+        return False, "Gateway not found."
+
+    target_filename = mission.target_data.get("filename", mission.target_filename)
+    copied = DataFile.query.filter_by(
+        computer_id=gw.id, filename=target_filename
+    ).first()
+    if not copied:
+        return False, (
+            f"File '{target_filename}' not found on your gateway. "
+            f"Navigate the LAN at {mission.target_ip} and download it."
+        )
+    return True, "File found."
 
 
 def check_mission_expiry(game_session_id):

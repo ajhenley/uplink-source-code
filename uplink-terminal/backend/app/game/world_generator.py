@@ -7,7 +7,7 @@ from ..extensions import db
 from ..models import (
     Company, VLocation, Computer, ComputerScreen,
     SecuritySystem, DataFile, AccessLog, PlayerLink, Connection,
-    Email, Software, Hardware, BankAccount,
+    Email, Software, Hardware, BankAccount, LanNode,
 )
 from .constants import *
 
@@ -352,9 +352,22 @@ def generate_world(game_session_id):
     company_names = random.sample(COMPANY_NAMES, min(12, len(COMPANY_NAMES)))
     company_types = [TYPE_COMMERCIAL, TYPE_FINANCIAL, TYPE_COMMERCIAL, TYPE_ACADEMIC]
 
+    # Pre-generate sizes to determine which companies get LANs
+    company_specs = []
     for name in company_names:
         size = random.randint(1, 12)
         ctype = random.choice(company_types)
+        company_specs.append((name, size, ctype))
+
+    # Select largest companies for LANs (up to LAN_MAX_COMPANIES, size >= LAN_MIN_COMPANY_SIZE)
+    lan_candidates = sorted(
+        [(name, size, ctype) for name, size, ctype in company_specs if size >= LAN_MIN_COMPANY_SIZE],
+        key=lambda x: x[1],
+        reverse=True,
+    )[:LAN_MAX_COMPANIES]
+    lan_company_names = {name for name, _, _ in lan_candidates}
+
+    for name, size, ctype in company_specs:
         company = Company(
             game_session_id=gsid,
             name=name,
@@ -364,7 +377,8 @@ def generate_world(game_session_id):
             alignment=random.randint(-5, 5),
         )
         db.session.add(company)
-        _create_company_computers(gsid, name, size, company_type=ctype)
+        has_lan = name in lan_company_names
+        _create_company_computers(gsid, name, size, company_type=ctype, has_lan=has_lan)
 
     # --- Starting Links ---
     db.session.add(PlayerLink(
@@ -485,7 +499,7 @@ def _create_gov_system(gsid, ip, name, company_name, trace_speed, trace_action):
         ))
 
 
-def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMERCIAL):
+def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMERCIAL, has_lan=False):
     """Create PAS and ISM for a company. Financial companies also get a bank."""
     pas_ip = _gen_ip()
     ism_ip = _gen_ip()
@@ -553,19 +567,29 @@ def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMER
                 subtitle="Authentication Required",
                 password=admin_pw,
                 next_screen=1)
+    menu_options = [
+        {"label": "File Server", "screen": 2},
+        {"label": "System Logs", "screen": 3},
+    ]
+    if has_lan:
+        menu_options.append({"label": "Local Area Network", "screen": 4})
+
     _add_screen(ism.id, 1, SCREEN_MENU,
                 title=f"{company_name} ISM",
                 subtitle="Internal Services",
-                content={"options": [
-                    {"label": "File Server", "screen": 2},
-                    {"label": "System Logs", "screen": 3},
-                ]})
+                content={"options": menu_options})
     _add_screen(ism.id, 2, SCREEN_FILESERVER,
                 title=f"{company_name} ISM",
                 subtitle="File Server")
     _add_screen(ism.id, 3, SCREEN_LOGSCREEN,
                 title=f"{company_name} ISM",
                 subtitle="Access Logs")
+
+    if has_lan:
+        _add_screen(ism.id, 4, SCREEN_LAN,
+                    title=f"{company_name} ISM",
+                    subtitle="Local Area Network")
+        _create_lan(ism.id, company_name, size)
 
     # Security based on company size
     if size > 1:
@@ -660,3 +684,133 @@ def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMER
         npc_sample = random.sample(NPC_NAMES, min(num_accounts, len(NPC_NAMES)))
         for npc_name in npc_sample:
             _create_bank_account(bank.id, npc_name)
+
+
+def _create_lan(computer_id, company_name, size):
+    """Generate a LAN topology for a company ISM.
+
+    Creates 5-9 nodes in a tree-like graph placed on a 3-row x 4-col grid.
+    Node 0 = ROUTER (always discovered, unlocked).
+    """
+    # Determine node count based on company size
+    num_nodes = min(5 + (size - LAN_MIN_COMPANY_SIZE), 9)
+    num_nodes = max(num_nodes, 5)
+
+    # Build node list: index, type, label, row, col, security_level
+    nodes = []
+
+    # Node 0: ROUTER at (0, 0) — always discovered, unlocked
+    nodes.append({
+        "index": 0, "type": LAN_ROUTER, "label": "Router A",
+        "row": 0, "col": 0, "security": 0,
+        "discovered": True, "locked": False,
+    })
+
+    # Assign remaining node types
+    remaining_types = []
+    # 1-3 terminals
+    num_terminals = min(random.randint(1, 3), num_nodes - 4)
+    num_terminals = max(num_terminals, 1)
+    for i in range(num_terminals):
+        remaining_types.append((LAN_TERMINAL, f"Terminal {i + 1}", random.choice([0, 0, 1])))
+
+    # 1-2 locks
+    num_locks = min(random.randint(1, 2), num_nodes - len(remaining_types) - 3)
+    num_locks = max(num_locks, 1)
+    for i in range(num_locks):
+        remaining_types.append((LAN_LOCK, f"Lock {i + 1}", random.randint(1, min(3, size // 3))))
+
+    # 1 file server
+    remaining_types.append((LAN_FILE_SERVER, "File Server", random.randint(1, 2)))
+
+    # 1 mainframe
+    remaining_types.append((LAN_MAINFRAME, "Mainframe", random.randint(2, 3)))
+
+    # Pad with extra terminals if needed
+    while len(remaining_types) < num_nodes - 1:
+        idx = len([t for t in remaining_types if t[0] == LAN_TERMINAL]) + 1
+        remaining_types.append((LAN_TERMINAL, f"Terminal {idx}", 0))
+
+    # Trim if we have too many
+    remaining_types = remaining_types[:num_nodes - 1]
+
+    # Shuffle non-critical types but keep FILE_SERVER and MAINFRAME toward the end
+    # to ensure they're deeper in the graph
+    front = [t for t in remaining_types if t[0] in (LAN_TERMINAL, LAN_LOCK)]
+    back = [t for t in remaining_types if t[0] in (LAN_FILE_SERVER, LAN_MAINFRAME)]
+    random.shuffle(front)
+    ordered = front + back
+
+    # Assign grid positions — row 0 col 0 is taken by ROUTER
+    # Fill positions: row 0 cols 1-3, row 1 cols 0-3, row 2 cols 0-3
+    grid_positions = []
+    for r in range(3):
+        for c in range(4):
+            if r == 0 and c == 0:
+                continue  # taken by ROUTER
+            grid_positions.append((r, c))
+
+    # Take only as many positions as we need
+    selected_positions = grid_positions[:len(ordered)]
+
+    for i, (ntype, label, sec) in enumerate(ordered):
+        r, c = selected_positions[i]
+        nodes.append({
+            "index": i + 1, "type": ntype, "label": label,
+            "row": r, "col": c, "security": sec,
+            "discovered": False, "locked": sec > 0,
+        })
+
+    # Build connections as a tree: each node connects to the previous node
+    # that is adjacent in the grid (within 1 step horizontal or vertical)
+    connections = {i: [] for i in range(len(nodes))}
+
+    for i in range(1, len(nodes)):
+        node = nodes[i]
+        # Find the closest previous node by grid distance
+        best_parent = 0
+        best_dist = 999
+        for j in range(i):
+            parent = nodes[j]
+            dist = abs(node["row"] - parent["row"]) + abs(node["col"] - parent["col"])
+            if dist < best_dist:
+                best_dist = dist
+                best_parent = j
+        connections[best_parent].append(i)
+        connections[i].append(best_parent)
+
+    # Create LanNode objects
+    for node in nodes:
+        idx = node["index"]
+        conn_list = sorted(set(connections[idx]))
+        content = {}
+
+        # Add files to FILE_SERVER and MAINFRAME
+        if node["type"] == LAN_FILE_SERVER:
+            file_names = random.sample(LAN_FILE_NAMES, random.randint(2, 4))
+            content["files"] = [
+                {"name": fn, "size": random.randint(2, 8), "type": "CLASSIFIED"}
+                for fn in file_names
+            ]
+        elif node["type"] == LAN_MAINFRAME:
+            file_names = random.sample(LAN_FILE_NAMES, random.randint(1, 2))
+            content["files"] = [
+                {"name": fn, "size": random.randint(4, 12), "type": "TOP_SECRET"}
+                for fn in file_names
+            ]
+
+        lan_node = LanNode(
+            computer_id=computer_id,
+            node_index=idx,
+            node_type=node["type"],
+            label=node["label"],
+            row=node["row"],
+            col=node["col"],
+            is_discovered=node["discovered"],
+            is_locked=node["locked"],
+            security_level=node["security"],
+            is_bypassed=False,
+            connections_json=json.dumps(conn_list),
+            content_json=json.dumps(content),
+        )
+        db.session.add(lan_node)

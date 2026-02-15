@@ -33,6 +33,9 @@ class Computer(db.Model):
                                   order_by="AccessLog.game_tick.desc()")
     bank_accounts = db.relationship("BankAccount", backref="computer", lazy=True,
                                     cascade="all, delete-orphan")
+    lan_nodes = db.relationship("LanNode", backref="computer", lazy=True,
+                                cascade="all, delete-orphan",
+                                order_by="LanNode.node_index")
 
     def get_screen(self, index):
         """Get screen by index."""

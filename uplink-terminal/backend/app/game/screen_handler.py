@@ -1,7 +1,7 @@
 """Handle screen-contextual input when connected to a computer."""
 
 from ..extensions import db
-from ..models import Computer, PlayerLink, VLocation, Mission, Software, GameSession, Hardware, BankAccount, AccessLog, DataFile
+from ..models import Computer, PlayerLink, VLocation, Mission, Software, GameSession, Hardware, BankAccount, AccessLog, DataFile, LanNode
 from ..terminal.output import success, error, info, warning, dim, green, bright_green, cyan, yellow
 from .constants import *
 from .screen_renderer import render_screen
@@ -40,6 +40,7 @@ def handle_screen_input(text, session):
         SCREEN_BANKTRANSFER: _handle_banktransfer,
         SCREEN_NEWS: _handle_news,
         SCREEN_RANKINGS: _handle_rankings,
+        SCREEN_LAN: _handle_lan,
     }
 
     handler = handlers.get(screen.screen_type)
@@ -723,4 +724,226 @@ def _handle_rankings(text, computer, screen, session):
             if s.screen_type == SCREEN_MENU:
                 return _navigate_to(session, computer, s.screen_index)
         return _navigate_to(session, computer, 0)
+    return None
+
+
+def _handle_lan(text, computer, screen, session):
+    """LAN: scan, move, hack, ls, download, exit commands."""
+    parts = text.strip().split(None, 1)
+    cmd = parts[0].lower() if parts else ""
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    lan_nodes = LanNode.query.filter_by(computer_id=computer.id).order_by(LanNode.node_index).all()
+    if not lan_nodes:
+        return error("No LAN nodes found on this system.")
+
+    by_index = {n.node_index: n for n in lan_nodes}
+
+    # On first entry, set player to ROUTER (node 0) and mark it discovered
+    if session.current_lan_node is None:
+        router = by_index.get(0)
+        if router:
+            router.is_discovered = True
+            router.is_locked = False
+            db.session.commit()
+        session.current_lan_node = 0
+        return render_screen(computer, screen, session)
+
+    current_node = by_index.get(session.current_lan_node)
+    if not current_node:
+        session.current_lan_node = 0
+        return render_screen(computer, screen, session)
+
+    if cmd == "scan":
+        # Discover all adjacent nodes
+        discovered_count = 0
+        for adj_idx in current_node.connections:
+            adj = by_index.get(adj_idx)
+            if adj and not adj.is_discovered:
+                adj.is_discovered = True
+                discovered_count += 1
+        db.session.commit()
+        if discovered_count:
+            result = success(f"Scan complete. {discovered_count} new node(s) discovered.")
+        else:
+            result = info("Scan complete. No new nodes found.")
+        return result + "\n" + render_screen(computer, screen, session)
+
+    elif cmd == "move":
+        if not arg:
+            return error("Usage: move <#> (number from adjacent nodes list)")
+
+        try:
+            choice = int(arg)
+        except ValueError:
+            return error("Usage: move <#>")
+
+        # Build adjacency list of discovered nodes
+        adj_nodes = []
+        for adj_idx in current_node.connections:
+            adj = by_index.get(adj_idx)
+            if adj and adj.is_discovered:
+                adj_nodes.append(adj)
+
+        if choice < 1 or choice > len(adj_nodes):
+            return error(f"Invalid choice. Range: 1-{len(adj_nodes)}.")
+
+        target = adj_nodes[choice - 1]
+
+        # Check if locked
+        if target.is_locked and not target.is_bypassed:
+            return error(f"Node '{target.label}' is locked (security level {target.security_level}). Use 'hack' after moving adjacent, or bypass it first.")
+
+        session.current_lan_node = target.node_index
+        return render_screen(computer, screen, session)
+
+    elif cmd == "hack":
+        # Hack the current node
+        if not current_node.is_locked or current_node.is_bypassed:
+            return info(f"'{current_node.label}' is already accessible.")
+
+        if current_node.security_level == 0:
+            current_node.is_locked = False
+            current_node.is_bypassed = True
+            db.session.commit()
+            return success(f"'{current_node.label}' bypassed.") + "\n" + render_screen(computer, screen, session)
+
+        # Check player owns Bypasser with sufficient version
+        gsid = session.game_session_id
+        bypasser = Software.query.filter_by(
+            game_session_id=gsid, software_type=TOOL_BYPASSER
+        ).first()
+
+        if not bypasser:
+            return error("You need a Bypasser to hack LAN nodes. Purchase one from the Uplink software shop.")
+
+        try:
+            bypasser_ver = float(bypasser.version)
+        except (TypeError, ValueError):
+            bypasser_ver = 1.0
+
+        if bypasser_ver < current_node.security_level:
+            return error(
+                f"Bypasser v{bypasser.version} is insufficient. "
+                f"Node requires security level {current_node.security_level} "
+                f"(need Bypasser v{current_node.security_level}.0+)."
+            )
+
+        # Hack successful
+        current_node.is_locked = False
+        current_node.is_bypassed = True
+
+        # Create suspicious access log
+        gs = db.session.get(GameSession, gsid)
+        if gs:
+            log = AccessLog(
+                computer_id=computer.id,
+                game_tick=gs.game_time_ticks,
+                from_ip=gs.gateway_ip or "unknown",
+                from_name=session.username or "unknown",
+                action=f"LAN node bypassed: {current_node.label}",
+                suspicious=True,
+            )
+            db.session.add(log)
+
+        db.session.commit()
+        return success(f"'{current_node.label}' bypassed (security level {current_node.security_level}).") + "\n" + render_screen(computer, screen, session)
+
+    elif cmd == "ls":
+        if current_node.node_type not in (LAN_FILE_SERVER, LAN_MAINFRAME):
+            return info(f"No files on this node ({current_node.node_type}).")
+
+        if current_node.is_locked and not current_node.is_bypassed:
+            return error("Node is locked. Hack it first.")
+
+        content = current_node.content
+        files = content.get("files", [])
+        if not files:
+            return info("No files found.")
+
+        file_lines = [
+            "",
+            f"  {cyan('Filename'):<40} {cyan('Size'):<10} {cyan('Type')}",
+            f"  {dim('-' * 50)}",
+        ]
+        for f in files:
+            file_lines.append(
+                f"  {green(f['name']):<40} {dim(str(f['size']) + ' GQ'):<10} {dim(f['type'])}"
+            )
+        file_lines.append("")
+        file_lines.append(dim("  'download <filename>' to copy to gateway"))
+        file_lines.append("")
+        return "\n".join(file_lines)
+
+    elif cmd == "download":
+        if not arg:
+            return error("Usage: download <filename>")
+
+        if current_node.node_type not in (LAN_FILE_SERVER, LAN_MAINFRAME):
+            return error(f"No files on this node ({current_node.node_type}).")
+
+        if current_node.is_locked and not current_node.is_bypassed:
+            return error("Node is locked. Hack it first.")
+
+        content = current_node.content
+        files = content.get("files", [])
+        target_file = None
+        for f in files:
+            if f["name"] == arg:
+                target_file = f
+                break
+
+        if not target_file:
+            return error(f"File '{arg}' not found on this node.")
+
+        # Find player's gateway
+        gsid = session.game_session_id
+        gs = db.session.get(GameSession, gsid)
+        if not gs:
+            return error("No active game session.")
+
+        gw = Computer.query.filter_by(
+            game_session_id=gsid, ip=gs.gateway_ip
+        ).first()
+        if not gw:
+            return error("Gateway not found.")
+
+        # Check if file already exists on gateway
+        existing = DataFile.query.filter_by(
+            computer_id=gw.id, filename=target_file["name"]
+        ).first()
+        if existing:
+            return warning(f"File '{target_file['name']}' already exists on your gateway.")
+
+        # Create file on gateway
+        new_file = DataFile(
+            computer_id=gw.id,
+            filename=target_file["name"],
+            size=target_file["size"],
+            file_type=target_file.get("type", "DATA"),
+        )
+        db.session.add(new_file)
+
+        # Create suspicious access log
+        log = AccessLog(
+            computer_id=computer.id,
+            game_tick=gs.game_time_ticks,
+            from_ip=gs.gateway_ip or "unknown",
+            from_name=session.username or "unknown",
+            action=f"LAN file downloaded: {target_file['name']}",
+            suspicious=True,
+        )
+        db.session.add(log)
+
+        db.session.commit()
+        return success(f"Downloaded '{target_file['name']}' ({target_file['size']} GQ) to gateway.")
+
+    elif cmd in ("exit", "back"):
+        session.current_lan_node = None
+        # Navigate back to ISM menu (screen index 1)
+        for s in computer.screens:
+            if s.screen_type == SCREEN_MENU:
+                return _navigate_to(session, computer, s.screen_index)
+        return _navigate_to(session, computer, 1)
+
     return None
