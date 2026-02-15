@@ -323,6 +323,7 @@ def _create_gov_system(gsid, ip, name, company_name, trace_speed, trace_action):
             filename=f"record_{random.randint(1000, 9999)}.dat",
             size=random.randint(1, 5),
             file_type="DATA",
+            encrypted=random.random() < 0.4,
         ))
 
 
@@ -414,12 +415,12 @@ def _create_company_computers(gsid, company_name, size):
             computer_id=ism.id, security_type=SEC_MONITOR,
             level=min(size // 3, 5),
         ))
-    if size > 8:
+    if size > 4:
         db.session.add(SecuritySystem(
             computer_id=ism.id, security_type=SEC_PROXY,
             level=min(size // 4, 3),
         ))
-    if size > 10:
+    if size > 7:
         db.session.add(SecuritySystem(
             computer_id=ism.id, security_type=SEC_FIREWALL,
             level=min(size // 5, 3),
@@ -434,5 +435,5 @@ def _create_company_computers(gsid, company_name, size):
             filename=fname,
             size=random.randint(1, 10),
             file_type="DATA",
-            encrypted=random.random() < 0.2,
+            encrypted=random.random() < 0.3,
         ))

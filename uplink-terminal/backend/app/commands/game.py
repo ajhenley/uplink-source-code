@@ -8,7 +8,7 @@ from ..terminal.output import (
 from ..extensions import db
 from ..models import (
     GameSession, Computer, PlayerLink, Connection, VLocation, AccessLog,
-    Email, Software, RunningTool, Hardware,
+    Email, Software, RunningTool, Hardware, SecuritySystem,
 )
 from ..game.constants import *
 from ..game.screen_renderer import render_screen
@@ -504,7 +504,9 @@ def cmd_run(args, session):
     if not args:
         return error("Usage: run <tool> [param]\n"
                       "  Tools: password_breaker, file_copier <file>, "
-                      "file_deleter <file>, log_deleter")
+                      "file_deleter <file>, log_deleter,\n"
+                      "         proxy_disable, firewall_disable, "
+                      "monitor_bypass, decrypter <file>")
 
     tool_name = args[0].lower()
     tool_type = TOOL_ALIASES.get(tool_name)
@@ -695,6 +697,61 @@ def cmd_route(args, session):
     return error("Usage: route [add <ip> | remove <#> | clear]")
 
 
+def cmd_probe(args, session):
+    """Show security systems on the connected target."""
+    if not session.is_connected:
+        return error("Not connected. Use 'connect <ip|#>' first.")
+
+    computer = Computer.query.filter_by(
+        game_session_id=session.game_session_id,
+        ip=session.current_computer_ip,
+    ).first()
+    if not computer:
+        session.disconnect()
+        return error("Connection lost.")
+
+    security_list = SecuritySystem.query.filter_by(computer_id=computer.id).all()
+
+    lines = [header("SECURITY SCAN"), ""]
+    lines.append(f"  Target: {green(computer.name)} ({dim(computer.ip)})")
+    lines.append("")
+
+    if not security_list:
+        lines.append(f"  {dim('No security systems detected.')}")
+    else:
+        for sec in security_list:
+            sec_name = sec.security_type.title()
+            level_str = f"Level {sec.level}"
+            if sec.is_bypassed:
+                status = bright_green("Bypassed")
+            elif sec.is_active:
+                status = yellow("Active")
+            else:
+                status = dim("Inactive")
+            lines.append(f"  {cyan(sec_name):<30} {dim(level_str):<16} [{status}]")
+
+    # Trace info
+    lines.append("")
+    if computer.trace_speed > 0:
+        trace_label = {TRACE_SLOW: "Slow", TRACE_MEDIUM: "Medium",
+                       TRACE_FAST: "Fast", TRACE_INSTANT: "Instant"}.get(
+            computer.trace_speed, f"{computer.trace_speed}s")
+        lines.append(f"  {cyan('Trace:')} {yellow(trace_label)} ({computer.trace_speed}s per link)")
+
+        # Show monitor effect on trace
+        monitor = SecuritySystem.query.filter_by(
+            computer_id=computer.id, security_type=SEC_MONITOR
+        ).first()
+        if monitor and monitor.is_active and not monitor.is_bypassed:
+            factor = 1 + monitor.level * MONITOR_TRACE_FACTOR
+            lines.append(f"  {cyan('Monitor effect:')} {yellow(f'{factor:.1f}x')} trace speed boost")
+    else:
+        lines.append(f"  {cyan('Trace:')} {green('None')}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 # Register all game commands
 registry.register(
     "links", cmd_links,
@@ -799,4 +856,9 @@ registry.register(
     states=[SessionState.IN_GAME],
     usage="route [add <ip> | remove <#> | clear]",
     description="Manage bounce route",
+)
+registry.register(
+    "probe", cmd_probe,
+    states=[SessionState.IN_GAME],
+    description="Scan target's security systems",
 )

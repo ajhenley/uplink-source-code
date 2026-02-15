@@ -104,6 +104,10 @@ TOOL_FILE_COPIER = "FILE_COPIER"
 TOOL_FILE_DELETER = "FILE_DELETER"
 TOOL_LOG_DELETER = "LOG_DELETER"
 TOOL_TRACE_TRACKER = "TRACE_TRACKER"
+TOOL_PROXY_DISABLE = "PROXY_DISABLE"
+TOOL_FIREWALL_DISABLE = "FIREWALL_DISABLE"
+TOOL_MONITOR_BYPASS = "MONITOR_BYPASS"
+TOOL_DECRYPTER = "DECRYPTER"
 
 # Tool tick rates (at 5Hz, speed x1)
 TOOL_TICKS = {
@@ -112,6 +116,10 @@ TOOL_TICKS = {
     "FILE_DELETER": 9,        # ticks per GQ file size
     "LOG_DELETER": 60,        # flat ticks
     "TRACE_TRACKER": 0,       # passive (shows trace %)
+    "PROXY_DISABLE": 30,      # ticks per security level
+    "FIREWALL_DISABLE": 35,   # ticks per security level
+    "MONITOR_BYPASS": 25,     # ticks per security level
+    "DECRYPTER": 20,          # ticks per GQ file size
 }
 
 # Tool statuses
@@ -131,6 +139,10 @@ SOFTWARE_CATALOG = [
     ("File Deleter", "FILE_DELETER", "1.0", 1, 100),
     ("Log Deleter", "LOG_DELETER", "1.0", 1, 500),
     ("Trace Tracker", "TRACE_TRACKER", "1.0", 1, 300),
+    ("Proxy Disable", "PROXY_DISABLE", "1.0", 2, 2000),
+    ("Firewall Disable", "FIREWALL_DISABLE", "1.0", 2, 2500),
+    ("Monitor Bypass", "MONITOR_BYPASS", "1.0", 2, 1800),
+    ("Decrypter", "DECRYPTER", "1.0", 1, 1200),
 ]
 
 # Mission payments (base, variance fraction)
@@ -159,6 +171,10 @@ TOOL_ALIASES = {
     "file_deleter": "FILE_DELETER",
     "log_deleter": "LOG_DELETER",
     "trace_tracker": "TRACE_TRACKER",
+    "proxy_disable": "PROXY_DISABLE",
+    "firewall_disable": "FIREWALL_DISABLE",
+    "monitor_bypass": "MONITOR_BYPASS",
+    "decrypter": "DECRYPTER",
 }
 
 
@@ -199,6 +215,9 @@ MODEM_BASELINE = 1      # file copy at 1.0x speed at 1 GQ/s
 # Bounce routing
 BOUNCE_DELAY_PER_HOP = 1.5   # each hop multiplies trace time by 1.5x
 MAX_BOUNCE_HOPS = 8
+
+# Monitor trace factor: active monitor speeds trace by 1 / (1 + level * factor)
+MONITOR_TRACE_FACTOR = 0.3
 
 
 def get_rating_name(rating):

@@ -77,10 +77,18 @@ def tick():
             continue
 
         # Bounce route slows trace by BOUNCE_DELAY_PER_HOP per hop
-        from .constants import BOUNCE_DELAY_PER_HOP
+        from .constants import BOUNCE_DELAY_PER_HOP, MONITOR_TRACE_FACTOR, SEC_MONITOR
+        from ..models import SecuritySystem
         bounce_route = conn.bounce_route
         bounce_factor = BOUNCE_DELAY_PER_HOP ** len(bounce_route) if bounce_route else 1.0
         effective_trace = computer.trace_speed * bounce_factor
+
+        # Active monitor speeds up trace
+        monitor = SecuritySystem.query.filter_by(
+            computer_id=computer.id, security_type=SEC_MONITOR
+        ).first()
+        if monitor and monitor.is_active and not monitor.is_bypassed:
+            effective_trace /= (1 + monitor.level * MONITOR_TRACE_FACTOR)
         # trace_speed is in seconds, 5 ticks per second
         increment = (100.0 / (effective_trace * 5)) * gs.speed_multiplier
         conn.trace_progress = min(conn.trace_progress + increment, 100.0)
@@ -106,27 +114,59 @@ def _push_tool_events(ts, events):
         tool_name = rt.tool_type.replace("_", " ").title()
 
         if event_type == "completed":
+            # Check for error in result (security blocks, encryption, etc.)
+            err = rt.result.get("error") if rt.result else None
+
             # Build completion message
             if rt.tool_type == "PASSWORD_BREAKER":
-                pw = rt.result.get("password", "???")
-                msg = success(f"{tool_name} complete — password: '{pw}'. Access granted.")
-                # Re-render the new screen for the player
-                if ts.is_connected:
-                    comp = Computer.query.filter_by(
-                        game_session_id=ts.game_session_id,
-                        ip=ts.current_computer_ip,
-                    ).first()
-                    if comp:
-                        screen = comp.get_screen(ts.current_screen_index)
-                        if screen:
-                            msg += "\n" + render_screen(comp, screen, ts)
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    pw = rt.result.get("password", "???")
+                    msg = success(f"{tool_name} complete — password: '{pw}'. Access granted.")
+                    # Re-render the new screen for the player
+                    if ts.is_connected:
+                        comp = Computer.query.filter_by(
+                            game_session_id=ts.game_session_id,
+                            ip=ts.current_computer_ip,
+                        ).first()
+                        if comp:
+                            screen = comp.get_screen(ts.current_screen_index)
+                            if screen:
+                                msg += "\n" + render_screen(comp, screen, ts)
             elif rt.tool_type == "FILE_COPIER":
-                msg = success(f"{tool_name} complete — '{rt.target_param}' copied to gateway.")
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    msg = success(f"{tool_name} complete — '{rt.target_param}' copied to gateway.")
             elif rt.tool_type == "FILE_DELETER":
-                msg = success(f"{tool_name} complete — '{rt.target_param}' deleted.")
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    msg = success(f"{tool_name} complete — '{rt.target_param}' deleted.")
             elif rt.tool_type == "LOG_DELETER":
                 count = rt.result.get("logs_wiped", 0)
                 msg = success(f"{tool_name} complete — {count} log(s) wiped.")
+            elif rt.tool_type == "PROXY_DISABLE":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    msg = success(f"{tool_name} complete — proxy bypassed.")
+            elif rt.tool_type == "FIREWALL_DISABLE":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    msg = success(f"{tool_name} complete — firewall bypassed.")
+            elif rt.tool_type == "MONITOR_BYPASS":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    msg = success(f"{tool_name} complete — monitor bypassed. Trace speed restored.")
+            elif rt.tool_type == "DECRYPTER":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    msg = success(f"{tool_name} complete — '{rt.target_param}' decrypted.")
             else:
                 msg = success(f"{tool_name} complete.")
 

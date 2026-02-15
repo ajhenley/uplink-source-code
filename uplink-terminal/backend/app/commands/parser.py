@@ -63,7 +63,8 @@ def dispatch(text, terminal_session):
     _always_registry = {"dc", "look", "connect", "trace", "status", "help",
                         "clear", "save", "quit", "logout", "speed", "links",
                         "map", "rmlink", "run", "stop", "tools", "email",
-                        "read", "reply", "software", "gateway", "route"}
+                        "read", "reply", "software", "gateway", "route",
+                        "probe"}
     if (terminal_session.state == SessionState.IN_GAME
             and terminal_session.is_connected
             and cmd_name not in _always_registry):

@@ -3,7 +3,7 @@
 from ..extensions import db
 from ..models import (
     Software, RunningTool, Computer, DataFile, AccessLog,
-    GameSession, Connection,
+    GameSession, Connection, SecuritySystem,
 )
 from .constants import *
 
@@ -41,6 +41,41 @@ def start_tool(session, tool_type, target_ip, target_param=None):
     ).first()
     if existing:
         return False, f"{tool_type.replace('_', ' ').title()} is already running."
+
+    # Validate security bypass tools: target must have the security system
+    comp = Computer.query.filter_by(game_session_id=gsid, ip=target_ip).first()
+    if tool_type == TOOL_PROXY_DISABLE:
+        if comp:
+            sec = _get_security(comp.id, SEC_PROXY)
+            if not sec:
+                return False, "This system has no proxy to disable."
+            if sec.is_bypassed:
+                return False, "Proxy is already bypassed."
+    elif tool_type == TOOL_FIREWALL_DISABLE:
+        if comp:
+            sec = _get_security(comp.id, SEC_FIREWALL)
+            if not sec:
+                return False, "This system has no firewall to disable."
+            if sec.is_bypassed:
+                return False, "Firewall is already bypassed."
+    elif tool_type == TOOL_MONITOR_BYPASS:
+        if comp:
+            sec = _get_security(comp.id, SEC_MONITOR)
+            if not sec:
+                return False, "This system has no monitor to bypass."
+            if sec.is_bypassed:
+                return False, "Monitor is already bypassed."
+    elif tool_type == TOOL_DECRYPTER:
+        if not target_param:
+            return False, "Usage: run decrypter <filename>"
+        if comp:
+            df = DataFile.query.filter_by(
+                computer_id=comp.id, filename=target_param
+            ).first()
+            if not df:
+                return False, f"File '{target_param}' not found."
+            if not df.encrypted:
+                return False, f"File '{target_param}' is not encrypted."
 
     # Calculate ticks required
     ticks = _calc_ticks(tool_type, gsid, target_ip, target_param)
@@ -139,6 +174,19 @@ def _get_hw_value(gsid, hw_type, default):
     return hw.value if hw else default
 
 
+def _get_security(computer_id, security_type):
+    """Get a SecuritySystem record by type for a computer."""
+    return SecuritySystem.query.filter_by(
+        computer_id=computer_id, security_type=security_type
+    ).first()
+
+
+def _is_security_active(computer_id, security_type):
+    """Check if a security system is active and not bypassed."""
+    sec = _get_security(computer_id, security_type)
+    return sec is not None and sec.is_active and not sec.is_bypassed
+
+
 def _calc_ticks(tool_type, gsid, target_ip, target_param):
     """Calculate ticks required for a tool run.
 
@@ -201,6 +249,36 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
     elif tool_type == TOOL_LOG_DELETER:
         raw = base  # flat 60 ticks
 
+    elif tool_type in (TOOL_PROXY_DISABLE, TOOL_FIREWALL_DISABLE, TOOL_MONITOR_BYPASS):
+        # Ticks per security level
+        comp = Computer.query.filter_by(
+            game_session_id=gsid, ip=target_ip
+        ).first()
+        sec_map = {
+            TOOL_PROXY_DISABLE: SEC_PROXY,
+            TOOL_FIREWALL_DISABLE: SEC_FIREWALL,
+            TOOL_MONITOR_BYPASS: SEC_MONITOR,
+        }
+        level = 1
+        if comp:
+            sec = _get_security(comp.id, sec_map[tool_type])
+            if sec:
+                level = sec.level
+        raw = base * level
+
+    elif tool_type == TOOL_DECRYPTER:
+        # Ticks per GQ of file size
+        comp = Computer.query.filter_by(
+            game_session_id=gsid, ip=target_ip
+        ).first()
+        if comp and target_param:
+            df = DataFile.query.filter_by(
+                computer_id=comp.id, filename=target_param
+            ).first()
+            raw = base * (df.size if df else 3)
+        else:
+            raw = base * 3
+
     else:
         raw = base
 
@@ -224,6 +302,14 @@ def _execute_tool_effect(rt, ts=None):
         _effect_file_deleter(rt)
     elif rt.tool_type == TOOL_LOG_DELETER:
         _effect_log_deleter(rt)
+    elif rt.tool_type == TOOL_PROXY_DISABLE:
+        _effect_proxy_disable(rt)
+    elif rt.tool_type == TOOL_FIREWALL_DISABLE:
+        _effect_firewall_disable(rt)
+    elif rt.tool_type == TOOL_MONITOR_BYPASS:
+        _effect_monitor_bypass(rt)
+    elif rt.tool_type == TOOL_DECRYPTER:
+        _effect_decrypter(rt)
 
 
 def _effect_password_breaker(rt, ts=None):
@@ -235,6 +321,11 @@ def _effect_password_breaker(rt, ts=None):
         return
 
     gs = db.session.get(GameSession, rt.game_session_id)
+
+    # Proxy blocks password breaker
+    if _is_security_active(comp.id, SEC_PROXY):
+        rt.result = {"error": "Proxy detected anomalous login attempt."}
+        return
 
     # Set result with the cracked password
     rt.result = {"password": comp.admin_password or "unknown"}
@@ -282,6 +373,16 @@ def _effect_file_copier(rt):
         rt.result = {"error": "File not found"}
         return
 
+    # Firewall blocks file transfer
+    if _is_security_active(comp.id, SEC_FIREWALL):
+        rt.result = {"error": "Firewall blocked file transfer."}
+        return
+
+    # Encrypted files cannot be copied
+    if source_file.encrypted:
+        rt.result = {"error": "File is encrypted. Decrypt it first."}
+        return
+
     # Find player's gateway computer
     gw = Computer.query.filter_by(
         game_session_id=rt.game_session_id, ip=gs.gateway_ip
@@ -326,6 +427,17 @@ def _effect_file_deleter(rt):
     target_file = DataFile.query.filter_by(
         computer_id=comp.id, filename=rt.target_param
     ).first()
+
+    # Firewall blocks file deletion
+    if _is_security_active(comp.id, SEC_FIREWALL):
+        rt.result = {"error": "Firewall blocked file deletion."}
+        return
+
+    # Encrypted files cannot be deleted
+    if target_file and target_file.encrypted:
+        rt.result = {"error": "File is encrypted. Decrypt it first."}
+        return
+
     if target_file:
         db.session.delete(target_file)
         rt.result = {"deleted": rt.target_param, "from_ip": rt.target_ip}
@@ -358,3 +470,69 @@ def _effect_log_deleter(rt):
         count += 1
 
     rt.result = {"logs_wiped": count, "on_ip": rt.target_ip}
+
+
+def _effect_proxy_disable(rt):
+    """Bypass the proxy on the target computer."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp:
+        return
+
+    sec = _get_security(comp.id, SEC_PROXY)
+    if sec:
+        sec.is_bypassed = True
+        rt.result = {"bypassed": "proxy", "on_ip": rt.target_ip}
+    else:
+        rt.result = {"error": "No proxy found."}
+
+
+def _effect_firewall_disable(rt):
+    """Bypass the firewall on the target computer."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp:
+        return
+
+    sec = _get_security(comp.id, SEC_FIREWALL)
+    if sec:
+        sec.is_bypassed = True
+        rt.result = {"bypassed": "firewall", "on_ip": rt.target_ip}
+    else:
+        rt.result = {"error": "No firewall found."}
+
+
+def _effect_monitor_bypass(rt):
+    """Bypass the active monitor on the target computer."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp:
+        return
+
+    sec = _get_security(comp.id, SEC_MONITOR)
+    if sec:
+        sec.is_bypassed = True
+        rt.result = {"bypassed": "monitor", "on_ip": rt.target_ip}
+    else:
+        rt.result = {"error": "No monitor found."}
+
+
+def _effect_decrypter(rt):
+    """Decrypt a file on the target computer."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp or not rt.target_param:
+        return
+
+    df = DataFile.query.filter_by(
+        computer_id=comp.id, filename=rt.target_param
+    ).first()
+    if df and df.encrypted:
+        df.encrypted = False
+        rt.result = {"decrypted": rt.target_param, "on_ip": rt.target_ip}
+    else:
+        rt.result = {"error": "File not found or not encrypted."}
