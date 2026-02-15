@@ -220,10 +220,34 @@ MAX_BOUNCE_HOPS = 8
 MONITOR_TRACE_FACTOR = 0.3
 
 
+# Admin forensics
+ADMIN_REVIEW_INTERVAL = 300          # ticks between reviews (~60s at 1x)
+CRIMINAL_THRESHOLD_GAMEOVER = 10     # arrest at this level
+
+# Fine amounts by severity
+FINE_LOW = 0           # warning only (basic traced systems)
+FINE_MEDIUM = 300      # company systems (trace_action has FINE)
+FINE_HIGH = 750        # government systems (trace_action has ARREST)
+
+# Criminal record level names
+CRIMINAL_LEVEL_NAMES = {
+    0: "Clean", 1: "Caution", 3: "Flagged", 6: "Wanted", 10: "Arrested",
+}
+
+
 def get_rating_name(rating):
     """Get the rating name for a given numeric rating."""
     name = "Unregistered"
     for threshold in sorted(RATING_NAMES.keys()):
         if rating >= threshold:
             name = RATING_NAMES[threshold]
+    return name
+
+
+def get_criminal_level_name(record):
+    """Get the criminal record level name for a given offense count."""
+    name = "Clean"
+    for threshold in sorted(CRIMINAL_LEVEL_NAMES.keys()):
+        if record >= threshold:
+            name = CRIMINAL_LEVEL_NAMES[threshold]
     return name

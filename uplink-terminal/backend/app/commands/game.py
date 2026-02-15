@@ -862,3 +862,46 @@ registry.register(
     states=[SessionState.IN_GAME],
     description="Scan target's security systems",
 )
+
+
+def cmd_record(args, session):
+    """Show criminal record status."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    gs = db.session.get(GameSession, session.game_session_id)
+    if not gs:
+        return error("No active game session.")
+
+    from ..game.constants import get_criminal_level_name, CRIMINAL_THRESHOLD_GAMEOVER
+
+    level_name = get_criminal_level_name(gs.criminal_record)
+
+    lines = [
+        header("CRIMINAL RECORD"),
+        "",
+        f"  {cyan('Status:')}    {bright_green(level_name) if gs.criminal_record == 0 else yellow(level_name)}",
+        f"  {cyan('Offenses:')}  {dim(str(gs.criminal_record))} / {dim(str(CRIMINAL_THRESHOLD_GAMEOVER))}",
+        "",
+    ]
+
+    if gs.criminal_record == 0:
+        lines.append(f"  {dim('Your record is clean. Keep it that way.')}")
+    elif gs.criminal_record < 3:
+        lines.append(f"  {info('Use log_deleter before disconnecting to cover your tracks.')}")
+    elif gs.criminal_record < 6:
+        lines.append(f"  {warning('Authorities are watching. Delete logs after every hack.')}")
+    elif gs.criminal_record < CRIMINAL_THRESHOLD_GAMEOVER:
+        lines.append(f"  {error('WANTED: Arrest is imminent. Be extremely careful.')}")
+    else:
+        lines.append(f"  {error('You are under arrest.')}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "record", cmd_record,
+    states=[SessionState.IN_GAME],
+    description="Show criminal record status",
+)

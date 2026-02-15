@@ -350,6 +350,7 @@ def _effect_password_breaker(rt, ts=None):
             from_ip=gs.gateway_ip or "unknown",
             from_name="agent",
             action="Logged in (password breaker)",
+            suspicious=True,
         ))
 
 
@@ -411,6 +412,7 @@ def _effect_file_copier(rt):
         from_ip=gs.gateway_ip or "unknown",
         from_name="agent",
         action=f"Copied file: {rt.target_param}",
+        suspicious=True,
     ))
 
 
@@ -452,6 +454,7 @@ def _effect_file_deleter(rt):
             from_ip=gs.gateway_ip or "unknown",
             from_name="agent",
             action=f"Deleted file: {rt.target_param}",
+            suspicious=True,
         ))
 
 

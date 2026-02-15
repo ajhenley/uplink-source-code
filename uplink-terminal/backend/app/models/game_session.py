@@ -25,6 +25,7 @@ class GameSession(db.Model):
     balance = db.Column(db.Integer, default=3000, nullable=False)
     gateway_ip = db.Column(db.String(32), nullable=True)
     uplink_rating = db.Column(db.Integer, default=0, nullable=False)
+    criminal_record = db.Column(db.Integer, default=0, nullable=False)
 
     user = db.relationship("UserAccount", back_populates="sessions")
 

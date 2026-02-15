@@ -13,6 +13,7 @@ class AccessLog(db.Model):
     from_name = db.Column(db.String(128), default="")
     action = db.Column(db.String(128), default="")
     is_visible = db.Column(db.Boolean, default=True, nullable=False)
+    suspicious = db.Column(db.Boolean, default=False, nullable=False)
 
     def __repr__(self):
         return f"<AccessLog {self.action}>"
