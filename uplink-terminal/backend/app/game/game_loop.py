@@ -2,6 +2,7 @@
 
 import threading
 import time
+from datetime import datetime, timezone
 
 from ..extensions import db
 from ..ws.handlers import sessions
@@ -61,6 +62,10 @@ def tick():
         # --- Mission expiry (every ~100 ticks) ---
         if gs.game_time_ticks % 100 < gs.speed_multiplier:
             check_mission_expiry(gs.id)
+
+        # --- Autosave (every ~500 ticks) ---
+        if gs.game_time_ticks % 500 < gs.speed_multiplier:
+            gs.updated_at = datetime.now(timezone.utc)
 
         # --- Admin forensic review (every ~300 ticks) ---
         if gs.game_time_ticks % ADMIN_REVIEW_INTERVAL < gs.speed_multiplier:

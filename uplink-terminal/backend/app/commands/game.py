@@ -1,5 +1,5 @@
 """In-game commands: links, connect, dc, look, map, internic, addlink, rmlink, trace, speed,
-email, read, reply, software, run, stop, tools, buy, gateway, route."""
+email, read, reply, software, run, stop, tools, buy, gateway, route, missions, finance, whoami."""
 
 from ..terminal.session import SessionState
 from ..terminal.output import (
@@ -920,4 +920,106 @@ registry.register(
     "balance", cmd_balance,
     states=[SessionState.IN_GAME],
     description="Show credit balance",
+)
+
+
+def cmd_missions(args, session):
+    """Show accepted (in-progress) missions."""
+    from ..game.mission_engine import get_accepted_missions
+
+    missions = get_accepted_missions(session.game_session_id)
+
+    if not missions:
+        return info("No accepted missions. Visit the BBS to pick one up.")
+
+    lines = [header("ACTIVE MISSIONS"), ""]
+    for i, m in enumerate(missions, 1):
+        type_label = m.mission_type.replace("_", " ").title()
+        lines.append(f"  {bright_green(str(i) + '.')} {green(m.description)}")
+        lines.append(f"      {dim('Type:')} {dim(type_label)}  "
+                     f"{dim('Target:')} {dim(m.target_ip)}  "
+                     f"{dim('Pay:')} {cyan(f'{m.payment:,}c')}")
+    lines.append("")
+    lines.append(dim(f"  {len(missions)} mission(s) in progress."))
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "missions", cmd_missions,
+    states=[SessionState.IN_GAME],
+    description="Show accepted missions",
+)
+
+
+def cmd_finance(args, session):
+    """Show balance, bank account, and recent mission payments."""
+    gs = db.session.get(GameSession, session.game_session_id)
+    if not gs:
+        return error("No active game session.")
+
+    lines = [header("FINANCE"), ""]
+    lines.append(f"  {cyan('Balance:')} {green(f'{gs.balance:,} credits')}")
+
+    # Player's bank account
+    from ..models import BankAccount
+    player_acc = BankAccount.query.filter_by(
+        is_player=True,
+    ).join(Computer).filter(
+        Computer.game_session_id == session.game_session_id,
+    ).first()
+
+    if player_acc:
+        lines.append(f"  {cyan('Bank:')}    Uplink International Bank")
+        lines.append(f"  {cyan('Account:')} {dim(player_acc.account_number)}")
+        lines.append(f"  {cyan('Savings:')} {green(f'{player_acc.balance:,} credits')}")
+
+    # Recent completed missions
+    from ..models import Mission
+    from ..game.constants import MISSION_COMPLETED
+    recent = (
+        Mission.query
+        .filter_by(game_session_id=session.game_session_id, status=MISSION_COMPLETED)
+        .order_by(Mission.completed_at_tick.desc())
+        .limit(5)
+        .all()
+    )
+
+    if recent:
+        lines.append("")
+        lines.append(f"  {cyan('Recent Payments:')}")
+        for m in recent:
+            lines.append(f"    {bright_green('+')} {green(f'{m.payment:,}c')} — {dim(m.description)}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "finance", cmd_finance,
+    states=[SessionState.IN_GAME],
+    description="Show balance and bank info",
+)
+
+
+def cmd_whoami(args, session):
+    """Quick agent summary: name, rating, balance."""
+    gs = db.session.get(GameSession, session.game_session_id)
+    if not gs:
+        return error("No active game session.")
+
+    from ..game.constants import get_rating_name
+    rating_name = get_rating_name(gs.uplink_rating)
+
+    return info(
+        f"Agent {bright_green(session.username)} | "
+        f"Rating: {cyan(rating_name)} ({gs.uplink_rating}) | "
+        f"Balance: {green(f'{gs.balance:,}c')}"
+    )
+
+
+registry.register(
+    "whoami", cmd_whoami,
+    states=[SessionState.IN_GAME],
+    description="Quick agent info",
 )

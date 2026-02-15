@@ -8,19 +8,37 @@ from ..terminal.output import (
 from .parser import registry
 
 
+_COMMAND_CATEGORIES = {
+    "Navigation": ["connect", "dc", "look", "links", "map", "internic",
+                    "addlink", "rmlink", "route"],
+    "Hacking": ["run", "stop", "tools", "probe", "trace"],
+    "Info": ["email", "read", "reply", "status", "whoami", "record"],
+    "Economy": ["balance", "finance", "missions", "software", "gateway"],
+    "Meta": ["help", "clear", "speed", "save", "quit", "rename"],
+}
+
+
 def cmd_help(args, session):
-    """Show available commands."""
-    commands = registry.commands_for_state(session.state)
+    """Show available commands grouped by category."""
+    commands = {c.name: c for c in registry.commands_for_state(session.state)}
     lines = [header("AVAILABLE COMMANDS"), ""]
-    for cmd in sorted(commands, key=lambda c: c.name):
-        name_col = bright_green(f"  {cmd.name:<12}")
-        lines.append(f"{name_col} {dim(cmd.description)}")
-    lines.append("")
-    if cmd_usage := [c for c in commands if c.usage]:
-        lines.append(dim("  Usage:"))
-        for cmd in cmd_usage:
-            lines.append(dim(f"    {cmd.usage}"))
+
+    if session.state == SessionState.IN_GAME:
+        for category, names in _COMMAND_CATEGORIES.items():
+            cmds_in_cat = [commands[n] for n in names if n in commands]
+            if not cmds_in_cat:
+                continue
+            lines.append(f"  {cyan(category)}")
+            for cmd in cmds_in_cat:
+                name_col = bright_green(f"    {cmd.name:<14}")
+                lines.append(f"{name_col} {dim(cmd.description)}")
+            lines.append("")
+    else:
+        for cmd in sorted(commands.values(), key=lambda c: c.name):
+            name_col = bright_green(f"  {cmd.name:<14}")
+            lines.append(f"{name_col} {dim(cmd.description)}")
         lines.append("")
+
     return "\n".join(lines)
 
 
