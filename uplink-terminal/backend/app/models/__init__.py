@@ -12,6 +12,7 @@ from .email import Email
 from .mission import Mission
 from .software import Software
 from .running_tool import RunningTool
+from .hardware import Hardware
 
 __all__ = [
     "UserAccount",
@@ -29,4 +30,5 @@ __all__ = [
     "Mission",
     "Software",
     "RunningTool",
+    "Hardware",
 ]

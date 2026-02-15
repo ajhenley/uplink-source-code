@@ -1,5 +1,5 @@
 """In-game commands: links, connect, dc, look, map, internic, addlink, rmlink, trace, speed,
-email, read, reply, software, run, stop, tools, buy."""
+email, read, reply, software, run, stop, tools, buy, gateway, route."""
 
 from ..terminal.session import SessionState
 from ..terminal.output import (
@@ -8,7 +8,7 @@ from ..terminal.output import (
 from ..extensions import db
 from ..models import (
     GameSession, Computer, PlayerLink, Connection, VLocation, AccessLog,
-    Email, Software, RunningTool,
+    Email, Software, RunningTool, Hardware,
 )
 from ..game.constants import *
 from ..game.screen_renderer import render_screen
@@ -81,6 +81,18 @@ def cmd_connect(args, session):
         game_session_id=session.game_session_id
     ).first()
     if conn:
+        # Validate bounce route — remove any IPs that no longer exist
+        route = conn.bounce_route
+        if route:
+            valid_route = []
+            for hop_ip in route:
+                loc = VLocation.query.filter_by(
+                    game_session_id=session.game_session_id, ip=hop_ip
+                ).first()
+                if loc:
+                    valid_route.append(hop_ip)
+            conn.bounce_route = valid_route
+
         conn.target_ip = target_ip
         conn.is_active = True
         conn.trace_progress = 0.0
@@ -107,6 +119,13 @@ def cmd_connect(args, session):
     session.connect_to(target_ip, start_screen=first_screen.screen_index if first_screen else 0)
 
     output = success(f"Connected to {computer.name} ({target_ip})")
+
+    # Show bounce route info
+    if conn and conn.bounce_route:
+        hops = len(conn.bounce_route)
+        delay = BOUNCE_DELAY_PER_HOP ** hops
+        output += "\n" + info(f"Routing through {hops} hop(s) — trace delay: {delay:.1f}x")
+
     if computer.trace_speed > 0:
         output += "\n" + warning("Trace detected. Work quickly.")
 
@@ -280,8 +299,18 @@ def cmd_trace(args, session):
         "",
         f"  Target:   {dim(conn.target_ip)}",
         f"  Progress: [{bar}] {color(f'{progress:.0f}%')}",
-        "",
     ]
+
+    # Show bounce route info
+    route = conn.bounce_route
+    if route:
+        hops = len(route)
+        delay = BOUNCE_DELAY_PER_HOP ** hops
+        lines.append(f"  Route:    {dim(f'{hops} hop(s)')} — {green(f'{delay:.1f}x')} trace delay")
+    else:
+        lines.append(f"  Route:    {dim('Direct (no bounce)')}")
+
+    lines.append("")
 
     if progress >= 75:
         lines.append(f"  {warning('CRITICAL: Trace almost complete! Disconnect NOW!')}")
@@ -453,6 +482,15 @@ def cmd_software(args, session):
             f"{dim(f'{sw.size} GQ')}"
         )
     lines.append("")
+
+    # Show memory usage
+    used_mem = sum(s.size for s in sw_list)
+    mem_hw = Hardware.query.filter_by(
+        game_session_id=session.game_session_id, hardware_type=HW_MEMORY
+    ).first()
+    total_mem = mem_hw.value if mem_hw else "?"
+    lines.append(f"  {cyan('Memory:')} {dim(f'{used_mem}/{total_mem} GQ')}")
+    lines.append("")
     lines.append(dim(f"  {len(sw_list)} tool(s). Use 'run <tool>' when connected."))
     lines.append("")
     return "\n".join(lines)
@@ -534,6 +572,127 @@ def cmd_tools(args, session):
             lines.append(f"    {dim(f'Target: {rt.target_param}')}")
     lines.append("")
     return "\n".join(lines)
+
+
+def cmd_gateway(args, session):
+    """Show gateway hardware specs and memory usage."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    gsid = session.game_session_id
+
+    hw_list = Hardware.query.filter_by(game_session_id=gsid).all()
+    hw_by_type = {h.hardware_type: h for h in hw_list}
+
+    cpu = hw_by_type.get(HW_CPU)
+    modem = hw_by_type.get(HW_MODEM)
+    memory = hw_by_type.get(HW_MEMORY)
+
+    lines = [header("GATEWAY HARDWARE"), ""]
+    lines.append(f"  {cyan('CPU:')}    {green(cpu.name if cpu else 'None')} "
+                 f"{dim(f'({cpu.value} GHz)') if cpu else ''}")
+    lines.append(f"  {cyan('Modem:')}  {green(modem.name if modem else 'None')} "
+                 f"{dim(f'({modem.value} GQ/s)') if modem else ''}")
+    lines.append(f"  {cyan('Memory:')} {green(memory.name if memory else 'None')} "
+                 f"{dim(f'({memory.value} GQ)') if memory else ''}")
+    lines.append("")
+
+    # Memory usage
+    sw_list = Software.query.filter_by(game_session_id=gsid).all()
+    used_mem = sum(s.size for s in sw_list)
+    total_mem = memory.value if memory else 0
+    lines.append(f"  {cyan('Memory usage:')} {dim(f'{used_mem}/{total_mem} GQ')}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def cmd_route(args, session):
+    """Show or modify the bounce route."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    gsid = session.game_session_id
+    conn = Connection.query.filter_by(game_session_id=gsid).first()
+    if not conn:
+        return error("No connection record found.")
+
+    if not args:
+        # Show current route
+        route = conn.bounce_route
+        lines = [header("BOUNCE ROUTE"), ""]
+        if not route:
+            lines.append(f"  {dim('No bounce route configured (direct connection).')}")
+        else:
+            for i, hop_ip in enumerate(route, 1):
+                comp = Computer.query.filter_by(game_session_id=gsid, ip=hop_ip).first()
+                label = comp.name if comp else "Unknown"
+                lines.append(f"  {bright_green(str(i) + '.')} {green(label)}")
+                lines.append(f"      {dim(hop_ip)}")
+            delay = BOUNCE_DELAY_PER_HOP ** len(route)
+            lines.append("")
+            lines.append(f"  {cyan('Hops:')} {len(route)}  |  "
+                         f"{cyan('Trace delay:')} {green(f'{delay:.1f}x')}")
+        lines.append("")
+        lines.append(dim("  route add <ip>  |  route remove <#>  |  route clear"))
+        lines.append("")
+        return "\n".join(lines)
+
+    subcmd = args[0].lower()
+
+    if subcmd == "add":
+        if len(args) < 2:
+            return error("Usage: route add <ip>")
+        hop_ip = args[1]
+
+        # Validate the IP exists
+        loc = VLocation.query.filter_by(game_session_id=gsid, ip=hop_ip).first()
+        if not loc:
+            return error(f"No system found at {hop_ip}.")
+
+        route = conn.bounce_route
+        if len(route) >= MAX_BOUNCE_HOPS:
+            return error(f"Maximum {MAX_BOUNCE_HOPS} hops allowed.")
+
+        if hop_ip in route:
+            return warning(f"{hop_ip} is already in the route.")
+
+        route.append(hop_ip)
+        conn.bounce_route = route
+        db.session.commit()
+
+        delay = BOUNCE_DELAY_PER_HOP ** len(route)
+        comp = Computer.query.filter_by(game_session_id=gsid, ip=hop_ip).first()
+        label = comp.name if comp else hop_ip
+        return success(f"Added {label} ({hop_ip}) to route. "
+                       f"{len(route)} hop(s), {delay:.1f}x trace delay.")
+
+    elif subcmd == "remove":
+        if len(args) < 2:
+            return error("Usage: route remove <#>")
+        try:
+            idx = int(args[1])
+        except ValueError:
+            return error("Usage: route remove <#>")
+
+        route = conn.bounce_route
+        if idx < 1 or idx > len(route):
+            return error(f"Invalid hop number. You have {len(route)} hop(s).")
+
+        removed_ip = route.pop(idx - 1)
+        conn.bounce_route = route
+        db.session.commit()
+
+        delay = BOUNCE_DELAY_PER_HOP ** len(route) if route else 1.0
+        return success(f"Removed hop #{idx} ({removed_ip}). "
+                       f"{len(route)} hop(s), {delay:.1f}x trace delay.")
+
+    elif subcmd == "clear":
+        conn.bounce_route = []
+        db.session.commit()
+        return success("Bounce route cleared. Connection will be direct.")
+
+    return error("Usage: route [add <ip> | remove <#> | clear]")
 
 
 # Register all game commands
@@ -629,4 +788,15 @@ registry.register(
     "tools", cmd_tools,
     states=[SessionState.IN_GAME],
     description="Show running tools + progress",
+)
+registry.register(
+    "gateway", cmd_gateway,
+    states=[SessionState.IN_GAME],
+    description="Show gateway hardware specs",
+)
+registry.register(
+    "route", cmd_route,
+    states=[SessionState.IN_GAME],
+    usage="route [add <ip> | remove <#> | clear]",
+    description="Manage bounce route",
 )

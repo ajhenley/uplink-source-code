@@ -81,6 +81,7 @@ FILE_NAMES = [
 # Screen types (new)
 SCREEN_BBS = "BBS"
 SCREEN_SHOP = "SHOP"
+SCREEN_HWSHOP = "HWSHOP"
 
 # Game speed labels
 SPEED_LABELS = {0: "Paused", 1: "Normal", 3: "Fast", 8: "MegaFast"}
@@ -159,6 +160,45 @@ TOOL_ALIASES = {
     "log_deleter": "LOG_DELETER",
     "trace_tracker": "TRACE_TRACKER",
 }
+
+
+# --- Hardware types ---
+HW_CPU = "CPU"
+HW_MODEM = "MODEM"
+HW_MEMORY = "MEMORY"
+
+# Starting hardware (type, name, value, cost)
+STARTING_HARDWARE = [
+    ("CPU",    "CPU (60 GHz)",    60, 0),
+    ("MODEM",  "Modem (1 GQ/s)",   1, 0),
+    ("MEMORY", "Memory (24 GQ)",  24, 0),
+]
+
+# Hardware shop catalog: (name, hw_type, value, cost)
+HARDWARE_CATALOG = [
+    ("CPU (60 GHz)",         "CPU",     60,   1000),
+    ("CPU (80 GHz)",         "CPU",     80,   1300),
+    ("CPU (100 GHz)",        "CPU",    100,   3000),
+    ("CPU (120 GHz)",        "CPU",    120,   5000),
+    ("CPU (150 GHz)",        "CPU",    150,   8000),
+    ("CPU (200 GHz Turbo)",  "CPU",    200,  12000),
+    ("Modem (1 GQ/s)",      "MODEM",    1,   1000),
+    ("Modem (2 GQ/s)",      "MODEM",    2,   2000),
+    ("Modem (4 GQ/s)",      "MODEM",    4,   4000),
+    ("Modem (8 GQ/s)",      "MODEM",    8,   8000),
+    ("Memory (8 GQ)",       "MEMORY",   8,   3000),
+    ("Memory (16 GQ)",      "MEMORY",  16,   5500),
+    ("Memory (24 GQ)",      "MEMORY",  24,   8000),
+    ("Memory (32 GQ)",      "MEMORY",  32,  11000),
+]
+
+# CPU/modem baselines for scaling
+CPU_BASELINE = 60       # tools run at 1.0x speed at 60 GHz
+MODEM_BASELINE = 1      # file copy at 1.0x speed at 1 GQ/s
+
+# Bounce routing
+BOUNCE_DELAY_PER_HOP = 1.5   # each hop multiplies trace time by 1.5x
+MAX_BOUNCE_HOPS = 8
 
 
 def get_rating_name(rating):

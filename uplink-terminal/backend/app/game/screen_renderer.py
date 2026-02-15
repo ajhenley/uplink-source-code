@@ -18,6 +18,7 @@ def render_screen(computer, screen, session=None):
         SCREEN_LINKS: _render_links,
         SCREEN_BBS: _render_bbs,
         SCREEN_SHOP: _render_shop,
+        SCREEN_HWSHOP: _render_hwshop,
     }
     renderer = renderers.get(screen.screen_type, _render_unknown)
     return renderer(computer, screen, session)
@@ -226,6 +227,37 @@ def _render_shop(computer, screen, session):
         lines.append(
             f"  {bright_green(str(i) + '.')} {green(f'{name} v{ver}'):<36} "
             f"{dim(stype):<20} {yellow(f'{cost}c')}"
+        )
+
+    lines.append("")
+    lines.append(dim("  Type 'buy <#>' to purchase, 'back' to return, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_hwshop(computer, screen, session):
+    """Render hardware shop screen."""
+    from .constants import HARDWARE_CATALOG, HW_CPU, HW_MODEM, HW_MEMORY
+
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    if not session:
+        lines.append(f"  {dim('No session context.')}")
+        return "\n".join(lines)
+
+    lines.append(f"  {cyan('Item'):<40} {cyan('Type'):<10} {cyan('Value'):<12} {cyan('Cost')}")
+    lines.append(f"  {dim('-' * 60)}")
+
+    for i, (name, hw_type, value, cost) in enumerate(HARDWARE_CATALOG, 1):
+        if hw_type == HW_CPU:
+            val_str = f"{value} GHz"
+        elif hw_type == HW_MODEM:
+            val_str = f"{value} GQ/s"
+        else:
+            val_str = f"{value} GQ"
+        lines.append(
+            f"  {bright_green(str(i) + '.')} {green(name):<36} "
+            f"{dim(hw_type):<10} {dim(val_str):<12} {yellow(f'{cost}c')}"
         )
 
     lines.append("")

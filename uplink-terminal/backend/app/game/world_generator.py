@@ -7,7 +7,7 @@ from ..extensions import db
 from ..models import (
     Company, VLocation, Computer, ComputerScreen,
     SecuritySystem, DataFile, AccessLog, PlayerLink, Connection,
-    Email, Software,
+    Email, Software, Hardware,
 )
 from .constants import *
 
@@ -101,6 +101,7 @@ def generate_world(game_session_id):
                 content={"options": [
                     {"label": "Mission Board (BBS)", "screen": 4},
                     {"label": "Software Sales", "screen": 5},
+                    {"label": "Hardware Sales", "screen": 6},
                     {"label": "About Uplink", "screen": 2},
                     {"label": "Test Machine Access", "screen": 3},
                 ]})
@@ -128,6 +129,9 @@ def generate_world(game_session_id):
     _add_screen(uplink_pas.id, 5, SCREEN_SHOP,
                 title="Uplink Corporation",
                 subtitle="Software Sales")
+    _add_screen(uplink_pas.id, 6, SCREEN_HWSHOP,
+                title="Uplink Corporation",
+                subtitle="Hardware Sales")
 
     # --- Uplink Test Machine ---
     _add_location(gsid, IP_UPLINK_TEST, x=420, y=320)
@@ -236,6 +240,16 @@ def generate_world(game_session_id):
             cost=cost,
         ))
 
+    # --- Starting Hardware ---
+    for hw_type, hw_name, hw_value, hw_cost in STARTING_HARDWARE:
+        db.session.add(Hardware(
+            game_session_id=gsid,
+            hardware_type=hw_type,
+            name=hw_name,
+            value=hw_value,
+            cost=hw_cost,
+        ))
+
     # --- Welcome Email ---
     db.session.add(Email(
         game_session_id=gsid,
@@ -243,9 +257,11 @@ def generate_world(game_session_id):
         body=(
             "Welcome to the Uplink Corporation. Your account has been activated.\n\n"
             f"Visit our Public Access Server at {IP_UPLINK_PAS} to browse available\n"
-            "missions and purchase software.\n\n"
-            "Your gateway has been configured with a Trace Tracker.\n"
-            "Use 'software' to see your installed tools.\n\n"
+            "missions and purchase software and hardware upgrades.\n\n"
+            "Your gateway has been configured with a Trace Tracker,\n"
+            "a CPU (60 GHz), Modem (1 GQ/s), and Memory (24 GQ).\n\n"
+            "Use 'gateway' to view your hardware, 'software' for tools,\n"
+            "and 'route' to set up bounce routing before connecting.\n\n"
             "Good luck, agent.\n\n"
             "-- Uplink Corporation"
         ),

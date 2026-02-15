@@ -130,8 +130,21 @@ def tick_tools(game_session_id, speed_multiplier, ts=None):
     return events
 
 
+def _get_hw_value(gsid, hw_type, default):
+    """Get a hardware value for a session, with fallback default."""
+    from ..models import Hardware
+    hw = Hardware.query.filter_by(
+        game_session_id=gsid, hardware_type=hw_type
+    ).first()
+    return hw.value if hw else default
+
+
 def _calc_ticks(tool_type, gsid, target_ip, target_param):
-    """Calculate ticks required for a tool run."""
+    """Calculate ticks required for a tool run.
+
+    CPU speed scales all tools: ticks *= CPU_BASELINE / cpu_speed.
+    Modem speed additionally scales FILE_COPIER: ticks /= modem_speed.
+    """
     base = TOOL_TICKS.get(tool_type, 100)
 
     if tool_type == TOOL_PASSWORD_BREAKER:
@@ -140,8 +153,9 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
             game_session_id=gsid, ip=target_ip
         ).first()
         if comp and comp.admin_password:
-            return base * len(comp.admin_password)
-        return base * 6  # default 6 chars
+            raw = base * len(comp.admin_password)
+        else:
+            raw = base * 6  # default 6 chars
 
     elif tool_type == TOOL_FILE_COPIER:
         # Ticks per GQ of file size
@@ -154,8 +168,17 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
                     computer_id=comp.id, filename=target_param
                 ).first()
                 if df:
-                    return base * df.size
-        return base * 3  # default 3 GQ
+                    raw = base * df.size
+                else:
+                    raw = base * 3
+            else:
+                raw = base * 3
+        else:
+            raw = base * 3  # default 3 GQ
+
+        # Modem speed scaling for file copier
+        modem_speed = _get_hw_value(gsid, HW_MODEM, MODEM_BASELINE)
+        raw = max(1, int(raw / modem_speed))
 
     elif tool_type == TOOL_FILE_DELETER:
         if target_param:
@@ -167,13 +190,26 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
                     computer_id=comp.id, filename=target_param
                 ).first()
                 if df:
-                    return base * df.size
-        return base * 3
+                    raw = base * df.size
+                else:
+                    raw = base * 3
+            else:
+                raw = base * 3
+        else:
+            raw = base * 3
 
     elif tool_type == TOOL_LOG_DELETER:
-        return base  # flat 60 ticks
+        raw = base  # flat 60 ticks
 
-    return base
+    else:
+        raw = base
+
+    # CPU speed scaling (applied to all tools except trace tracker)
+    if tool_type != TOOL_TRACE_TRACKER:
+        cpu_speed = _get_hw_value(gsid, HW_CPU, CPU_BASELINE)
+        raw = max(1, int(raw * CPU_BASELINE / cpu_speed))
+
+    return raw
 
 
 def _execute_tool_effect(rt, ts=None):

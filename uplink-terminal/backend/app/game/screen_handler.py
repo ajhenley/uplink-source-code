@@ -1,7 +1,7 @@
 """Handle screen-contextual input when connected to a computer."""
 
 from ..extensions import db
-from ..models import Computer, PlayerLink, VLocation, Mission, Software, GameSession
+from ..models import Computer, PlayerLink, VLocation, Mission, Software, GameSession, Hardware
 from ..terminal.output import success, error, info, warning, dim, green, bright_green, cyan, yellow
 from .constants import *
 from .screen_renderer import render_screen
@@ -35,6 +35,7 @@ def handle_screen_input(text, session):
         SCREEN_LINKS: _handle_links,
         SCREEN_BBS: _handle_bbs,
         SCREEN_SHOP: _handle_shop,
+        SCREEN_HWSHOP: _handle_hwshop,
     }
 
     handler = handlers.get(screen.screen_type)
@@ -311,8 +312,9 @@ def _handle_shop(text, computer, screen, session):
         except ValueError:
             return error("Usage: buy <#>")
 
-        if idx < 1 or idx > len(SOFTWARE_CATALOG):
-            return error(f"Invalid item. Range: 1-{len(SOFTWARE_CATALOG)}.")
+        catalog = SOFTWARE_CATALOG
+        if idx < 1 or idx > len(catalog):
+            return error(f"Invalid item. Range: 1-{len(catalog)}.")
 
         name, stype, ver, size, cost = SOFTWARE_CATALOG[idx - 1]
 
@@ -330,6 +332,20 @@ def _handle_shop(text, computer, screen, session):
         if existing:
             return warning(f"You already own {existing.name}.")
 
+        # Check memory capacity
+        mem_hw = Hardware.query.filter_by(
+            game_session_id=gsid, hardware_type=HW_MEMORY
+        ).first()
+        if mem_hw:
+            used_mem = sum(
+                s.size for s in Software.query.filter_by(game_session_id=gsid).all()
+            )
+            if used_mem + size > mem_hw.value:
+                return error(
+                    f"Insufficient memory. Need {size} GQ, "
+                    f"have {mem_hw.value - used_mem}/{mem_hw.value} GQ free."
+                )
+
         # Purchase
         gs.balance -= cost
         sw = Software(
@@ -344,5 +360,87 @@ def _handle_shop(text, computer, screen, session):
         db.session.commit()
 
         return success(f"Purchased {name} v{ver} for {cost} credits. Balance: {gs.balance}c.")
+
+    return None
+
+
+def _handle_hwshop(text, computer, screen, session):
+    """HWSHOP: 'buy <#>' purchases hardware."""
+    parts = text.strip().split(None, 1)
+    cmd = parts[0].lower() if parts else ""
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    gsid = session.game_session_id
+
+    if cmd == "back":
+        for s in computer.screens:
+            if s.screen_type == SCREEN_MENU:
+                return _navigate_to(session, computer, s.screen_index)
+        return _navigate_to(session, computer, 0)
+
+    if cmd == "buy":
+        if not arg:
+            return error("Usage: buy <#>")
+        try:
+            idx = int(arg)
+        except ValueError:
+            return error("Usage: buy <#>")
+
+        if idx < 1 or idx > len(HARDWARE_CATALOG):
+            return error(f"Invalid item. Range: 1-{len(HARDWARE_CATALOG)}.")
+
+        name, hw_type, value, cost = HARDWARE_CATALOG[idx - 1]
+
+        gs = db.session.get(GameSession, gsid)
+        if not gs:
+            return error("No active game session.")
+
+        if gs.balance < cost:
+            return error(f"Insufficient credits. Need {cost}c, have {gs.balance}c.")
+
+        # Check current hardware of this type
+        existing = Hardware.query.filter_by(
+            game_session_id=gsid, hardware_type=hw_type
+        ).first()
+
+        if existing and existing.value >= value:
+            return warning(
+                f"You already have {existing.name} ({existing.value} "
+                f"{'GHz' if hw_type == HW_CPU else 'GQ/s' if hw_type == HW_MODEM else 'GQ'}"
+                f"), which is equal or better."
+            )
+
+        # Memory downgrade check: can't downgrade if software exceeds new capacity
+        if hw_type == HW_MEMORY and existing and value < existing.value:
+            used_mem = sum(
+                s.size for s in Software.query.filter_by(game_session_id=gsid).all()
+            )
+            if used_mem > value:
+                return error(
+                    f"Cannot downgrade memory. Current software uses {used_mem} GQ, "
+                    f"new capacity would be {value} GQ."
+                )
+
+        # Purchase: replace existing or create new
+        if existing:
+            existing.name = name
+            existing.value = value
+            existing.cost = cost
+        else:
+            db.session.add(Hardware(
+                game_session_id=gsid,
+                hardware_type=hw_type,
+                name=name,
+                value=value,
+                cost=cost,
+            ))
+
+        gs.balance -= cost
+        db.session.commit()
+
+        unit = "GHz" if hw_type == HW_CPU else "GQ/s" if hw_type == HW_MODEM else "GQ"
+        return success(
+            f"Installed {name} ({value} {unit}) for {cost} credits. Balance: {gs.balance}c."
+        )
 
     return None

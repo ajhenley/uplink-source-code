@@ -32,8 +32,8 @@ def cmd_clear(args, session):
 def cmd_status(args, session):
     """Show current game status."""
     from ..extensions import db
-    from ..models import GameSession, Connection
-    from ..game.constants import get_rating_name
+    from ..models import GameSession, Connection, Hardware
+    from ..game.constants import get_rating_name, HW_CPU, HW_MODEM, HW_MEMORY
 
     gs = db.session.get(GameSession, session.game_session_id)
     if not gs:
@@ -45,6 +45,21 @@ def cmd_status(args, session):
     speed = speed_labels.get(gs.speed_multiplier, f"x{gs.speed_multiplier}")
     rating_name = get_rating_name(gs.uplink_rating)
 
+    # Gateway hardware summary
+    hw_list = Hardware.query.filter_by(game_session_id=session.game_session_id).all()
+    hw_by_type = {h.hardware_type: h for h in hw_list}
+    cpu = hw_by_type.get(HW_CPU)
+    modem = hw_by_type.get(HW_MODEM)
+    memory = hw_by_type.get(HW_MEMORY)
+    gw_parts = []
+    if cpu:
+        gw_parts.append(f"CPU {cpu.value} GHz")
+    if modem:
+        gw_parts.append(f"Modem {modem.value} GQ/s")
+    if memory:
+        gw_parts.append(f"Mem {memory.value} GQ")
+    gw_line = " | ".join(gw_parts) if gw_parts else "No hardware"
+
     lines = [
         header("SYSTEM STATUS"),
         "",
@@ -52,6 +67,7 @@ def cmd_status(args, session):
         f"  {cyan('Session:')}    {dim(gs.name)}",
         f"  {cyan('Balance:')}    {green(f'{gs.balance} credits')}",
         f"  {cyan('Rating:')}     {bright_green(f'{rating_name}')} {dim(f'({gs.uplink_rating})')}",
+        f"  {cyan('Gateway:')}    {dim(gw_line)}",
         f"  {cyan('Play time:')}  {dim(f'{hours:.1f}h')}",
         f"  {cyan('Game time:')}  {dim(f'{gs.game_time_ticks} ticks')}",
         f"  {cyan('Speed:')}      {dim(speed)}",

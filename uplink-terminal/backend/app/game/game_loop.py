@@ -76,9 +76,13 @@ def tick():
         if not computer or computer.trace_speed <= 0:
             continue
 
-        # increment = (100 / (trace_speed * 5)) * speed_multiplier
+        # Bounce route slows trace by BOUNCE_DELAY_PER_HOP per hop
+        from .constants import BOUNCE_DELAY_PER_HOP
+        bounce_route = conn.bounce_route
+        bounce_factor = BOUNCE_DELAY_PER_HOP ** len(bounce_route) if bounce_route else 1.0
+        effective_trace = computer.trace_speed * bounce_factor
         # trace_speed is in seconds, 5 ticks per second
-        increment = (100.0 / (computer.trace_speed * 5)) * gs.speed_multiplier
+        increment = (100.0 / (effective_trace * 5)) * gs.speed_multiplier
         conn.trace_progress = min(conn.trace_progress + increment, 100.0)
 
         # Push WebSocket warnings at thresholds
