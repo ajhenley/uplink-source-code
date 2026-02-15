@@ -89,6 +89,31 @@ def start_tool(session, tool_type, target_ip, target_param=None):
                 return False, "No active security to bypass on this system."
     # TOOL_IP_PROBE has no special prerequisites
 
+    # FILE_COPIER: auto-detect upload vs download
+    if tool_type == TOOL_FILE_COPIER and target_param and comp:
+        remote_file = DataFile.query.filter_by(
+            computer_id=comp.id, filename=target_param
+        ).first()
+        if not remote_file:
+            # File not on remote — check if it's on the gateway (upload mode)
+            gs = db.session.get(GameSession, gsid)
+            if gs:
+                gw = Computer.query.filter_by(
+                    game_session_id=gsid, ip=gs.gateway_ip
+                ).first()
+                if gw:
+                    gw_file = DataFile.query.filter_by(
+                        computer_id=gw.id, filename=target_param
+                    ).first()
+                    if gw_file:
+                        target_param = f"upload:{target_param}"
+                    else:
+                        return False, f"File '{target_param}' not found on remote or gateway."
+                else:
+                    return False, f"File '{target_param}' not found on remote system."
+            else:
+                return False, f"File '{target_param}' not found on remote system."
+
     # Calculate ticks required
     ticks = _calc_ticks(tool_type, gsid, target_ip, target_param)
     if ticks == 0 and tool_type == TOOL_TRACE_TRACKER:
@@ -218,21 +243,28 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
             raw = base * 6  # default 6 chars
 
     elif tool_type == TOOL_FILE_COPIER:
-        # Ticks per GQ of file size
-        if target_param:
-            comp = Computer.query.filter_by(
-                game_session_id=gsid, ip=target_ip
-            ).first()
-            if comp:
+        # Ticks per GQ of file size; handle upload: prefix
+        is_upload = target_param and target_param.startswith("upload:")
+        fname = target_param[len("upload:"):] if is_upload else target_param
+        if fname:
+            if is_upload:
+                # Upload: look up file size on gateway
+                gs_tmp = db.session.get(GameSession, gsid)
+                gw = Computer.query.filter_by(
+                    game_session_id=gsid, ip=gs_tmp.gateway_ip
+                ).first() if gs_tmp else None
                 df = DataFile.query.filter_by(
-                    computer_id=comp.id, filename=target_param
-                ).first()
-                if df:
-                    raw = base * df.size
-                else:
-                    raw = base * 3
+                    computer_id=gw.id, filename=fname
+                ).first() if gw else None
             else:
-                raw = base * 3
+                # Download: look up file size on remote
+                comp = Computer.query.filter_by(
+                    game_session_id=gsid, ip=target_ip
+                ).first()
+                df = DataFile.query.filter_by(
+                    computer_id=comp.id, filename=fname
+                ).first() if comp else None
+            raw = base * (df.size if df else 3)
         else:
             raw = base * 3  # default 3 GQ
 
@@ -400,7 +432,7 @@ def _effect_password_breaker(rt, ts=None):
 
 
 def _effect_file_copier(rt):
-    """Copy a file to the player's gateway."""
+    """Copy a file to/from the player's gateway (download or upload)."""
     comp = Computer.query.filter_by(
         game_session_id=rt.game_session_id, ip=rt.target_ip
     ).first()
@@ -411,54 +443,90 @@ def _effect_file_copier(rt):
     if not gs:
         return
 
-    # Find the source file
-    source_file = DataFile.query.filter_by(
-        computer_id=comp.id, filename=rt.target_param
-    ).first()
-    if not source_file:
-        rt.result = {"error": "File not found"}
-        return
-
-    # Firewall blocks file transfer
+    # Firewall blocks file transfer (both directions)
     if _is_security_active(comp.id, SEC_FIREWALL):
         rt.result = {"error": "Firewall blocked file transfer."}
         return
 
-    # Encrypted files cannot be copied
-    if source_file.encrypted:
-        rt.result = {"error": "File is encrypted. Decrypt it first."}
-        return
+    # Detect upload mode
+    is_upload = rt.target_param.startswith("upload:")
+    fname = rt.target_param[len("upload:"):] if is_upload else rt.target_param
 
-    # Find player's gateway computer
     gw = Computer.query.filter_by(
         game_session_id=rt.game_session_id, ip=gs.gateway_ip
     ).first()
     if not gw:
         return
 
-    # Check if file already exists on gateway
-    existing = DataFile.query.filter_by(
-        computer_id=gw.id, filename=rt.target_param
-    ).first()
-    if not existing:
-        db.session.add(DataFile(
-            computer_id=gw.id,
-            filename=rt.target_param,
-            size=source_file.size,
-            file_type=source_file.file_type,
+    if is_upload:
+        # Upload: copy file from gateway to remote
+        source_file = DataFile.query.filter_by(
+            computer_id=gw.id, filename=fname
+        ).first()
+        if not source_file:
+            rt.result = {"error": "File not found on gateway"}
+            return
+
+        # Check if file already exists on remote
+        existing = DataFile.query.filter_by(
+            computer_id=comp.id, filename=fname
+        ).first()
+        if not existing:
+            db.session.add(DataFile(
+                computer_id=comp.id,
+                filename=fname,
+                size=source_file.size,
+                file_type=source_file.file_type,
+            ))
+
+        rt.result = {"uploaded": fname, "to_ip": rt.target_ip}
+
+        # Add access log
+        db.session.add(AccessLog(
+            computer_id=comp.id,
+            game_tick=gs.game_time_ticks,
+            from_ip=gs.gateway_ip or "unknown",
+            from_name="agent",
+            action=f"Uploaded file: {fname}",
+            suspicious=True,
         ))
+    else:
+        # Download: copy file from remote to gateway
+        source_file = DataFile.query.filter_by(
+            computer_id=comp.id, filename=fname
+        ).first()
+        if not source_file:
+            rt.result = {"error": "File not found"}
+            return
 
-    rt.result = {"copied": rt.target_param, "from_ip": rt.target_ip}
+        # Encrypted files cannot be copied
+        if source_file.encrypted:
+            rt.result = {"error": "File is encrypted. Decrypt it first."}
+            return
 
-    # Add access log
-    db.session.add(AccessLog(
-        computer_id=comp.id,
-        game_tick=gs.game_time_ticks,
-        from_ip=gs.gateway_ip or "unknown",
-        from_name="agent",
-        action=f"Copied file: {rt.target_param}",
-        suspicious=True,
-    ))
+        # Check if file already exists on gateway
+        existing = DataFile.query.filter_by(
+            computer_id=gw.id, filename=fname
+        ).first()
+        if not existing:
+            db.session.add(DataFile(
+                computer_id=gw.id,
+                filename=fname,
+                size=source_file.size,
+                file_type=source_file.file_type,
+            ))
+
+        rt.result = {"copied": fname, "from_ip": rt.target_ip}
+
+        # Add access log
+        db.session.add(AccessLog(
+            computer_id=comp.id,
+            game_tick=gs.game_time_ticks,
+            from_ip=gs.gateway_ip or "unknown",
+            from_name="agent",
+            action=f"Copied file: {fname}",
+            suspicious=True,
+        ))
 
 
 def _effect_file_deleter(rt):

@@ -27,7 +27,7 @@ def tick():
     from ..models import GameSession, Connection, Computer
     from .tool_engine import tick_tools
     from .mission_engine import generate_missions, check_mission_expiry
-    from .constants import ADMIN_REVIEW_INTERVAL, NEWS_GENERATION_INTERVAL
+    from .constants import ADMIN_REVIEW_INTERVAL, NEWS_GENERATION_INTERVAL, PLOT_START_TICK
 
     active_sessions = [
         ts for ts in sessions.values()
@@ -71,6 +71,11 @@ def tick():
         if gs.game_time_ticks % NEWS_GENERATION_INTERVAL < gs.speed_multiplier:
             from .news_engine import generate_random_news
             generate_random_news(gs.id, gs.game_time_ticks)
+
+        # --- Plot advancement ---
+        if gs.game_time_ticks >= PLOT_START_TICK:
+            from .plot_engine import tick_plot
+            tick_plot(gs)
 
         # --- Admin forensic review (every ~300 ticks) ---
         if gs.game_time_ticks % ADMIN_REVIEW_INTERVAL < gs.speed_multiplier:
@@ -158,8 +163,13 @@ def _push_tool_events(ts, events):
             elif rt.tool_type == "FILE_COPIER":
                 if err:
                     msg = warning(f"{tool_name} failed — {err}")
+                elif rt.result and rt.result.get("uploaded"):
+                    fname = rt.result["uploaded"]
+                    to_ip = rt.result.get("to_ip", "remote")
+                    msg = success(f"{tool_name} complete — '{fname}' uploaded to {to_ip}.")
                 else:
-                    msg = success(f"{tool_name} complete — '{rt.target_param}' copied to gateway.")
+                    fname = rt.result.get("copied", rt.target_param) if rt.result else rt.target_param
+                    msg = success(f"{tool_name} complete — '{fname}' copied to gateway.")
             elif rt.tool_type == "FILE_DELETER":
                 if err:
                     msg = warning(f"{tool_name} failed — {err}")

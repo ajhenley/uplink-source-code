@@ -274,8 +274,9 @@ def _render_shop(computer, screen, session):
 
 
 def _render_hwshop(computer, screen, session):
-    """Render hardware shop screen."""
+    """Render hardware shop screen with OWNED/UPGRADE markers."""
     from .constants import HARDWARE_CATALOG, HW_CPU, HW_MODEM, HW_MEMORY
+    from ..models import Hardware
 
     lines = _screen_header(screen.title, screen.subtitle)
 
@@ -283,8 +284,17 @@ def _render_hwshop(computer, screen, session):
         lines.append(f"  {dim('No session context.')}")
         return "\n".join(lines)
 
-    lines.append(f"  {cyan('Item'):<40} {cyan('Type'):<10} {cyan('Value'):<12} {cyan('Cost')}")
-    lines.append(f"  {dim('-' * 60)}")
+    # Build lookup of owned hardware: {hw_type: value}
+    owned = {}
+    if session.game_session_id:
+        for hw in Hardware.query.filter_by(game_session_id=session.game_session_id).all():
+            owned[hw.hardware_type] = hw.value
+
+    lines.append(
+        f"  {cyan('#'):<6} {cyan('Item'):<28} {cyan('Type'):<10} "
+        f"{cyan('Value'):<12} {cyan('Cost'):<10} {cyan('Status')}"
+    )
+    lines.append(f"  {dim('-' * 72)}")
 
     for i, (name, hw_type, value, cost) in enumerate(HARDWARE_CATALOG, 1):
         if hw_type == HW_CPU:
@@ -293,13 +303,24 @@ def _render_hwshop(computer, screen, session):
             val_str = f"{value} GQ/s"
         else:
             val_str = f"{value} GQ"
+
+        # Determine status marker
+        owned_val = owned.get(hw_type)
+        if owned_val is not None:
+            if value <= owned_val:
+                status = dim("(OWNED)")
+            else:
+                status = yellow("(UPGRADE)")
+        else:
+            status = ""
+
         lines.append(
-            f"  {bright_green(str(i) + '.')} {green(name):<36} "
-            f"{dim(hw_type):<10} {dim(val_str):<12} {yellow(f'{cost}c')}"
+            f"  {bright_green(str(i) + '.'):<6} {green(name):<28} "
+            f"{dim(hw_type):<10} {dim(val_str):<12} {yellow(f'{cost}c'):<10} {status}"
         )
 
     lines.append("")
-    lines.append(dim("  Type 'buy <#>' to purchase, 'back' to return, 'dc' to disconnect"))
+    lines.append(dim("  Type 'buy <#>' to purchase/upgrade, 'back' to return, 'dc' to disconnect"))
     lines.append("")
     return "\n".join(lines)
 

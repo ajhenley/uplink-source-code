@@ -299,7 +299,18 @@ HARDWARE_CATALOG = [
     ("Memory (16 GQ)",      "MEMORY",  16,   5500),
     ("Memory (24 GQ)",      "MEMORY",  24,   8000),
     ("Memory (32 GQ)",      "MEMORY",  32,  11000),
+    ("Memory (48 GQ)",      "MEMORY",  48,  18000),
+    ("Memory (64 GQ)",      "MEMORY",  64,  30000),
 ]
+
+# Gateway model names by memory capacity
+GATEWAY_MODELS = {
+    8: "Micro", 16: "Compact", 24: "Basic",
+    32: "Standard", 48: "Advanced", 64: "Elite",
+}
+
+# Nuke command cost
+NUKE_COST = 1000
 
 # CPU/modem baselines for scaling
 CPU_BASELINE = 60       # tools run at 1.0x speed at 60 GHz

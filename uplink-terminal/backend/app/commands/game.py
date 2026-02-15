@@ -621,7 +621,11 @@ def cmd_gateway(args, session):
     modem = hw_by_type.get(HW_MODEM)
     memory = hw_by_type.get(HW_MEMORY)
 
-    lines = [header("GATEWAY HARDWARE"), ""]
+    # Gateway model name based on memory capacity
+    mem_val = memory.value if memory else 0
+    model_name = GATEWAY_MODELS.get(mem_val, "Custom")
+    lines = [header(f"GATEWAY {model_name.upper()}"), ""]
+    lines.append(f"  {cyan('Model:')}  {green(f'Gateway {model_name}')}")
     lines.append(f"  {cyan('CPU:')}    {green(cpu.name if cpu else 'None')} "
                  f"{dim(f'({cpu.value} GHz)') if cpu else ''}")
     lines.append(f"  {cyan('Modem:')}  {green(modem.name if modem else 'None')} "
@@ -1152,6 +1156,164 @@ registry.register(
     "news", cmd_news,
     states=[SessionState.IN_GAME],
     description="Quick-connect to news network",
+)
+
+
+def cmd_nuke(args, session):
+    """Wipe all gateway files and connection history. Costs credits."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    gsid = session.game_session_id
+    gs = db.session.get(GameSession, gsid)
+    if not gs:
+        return error("No active game session.")
+
+    # Require confirmation
+    if not args or args[0].lower() != "confirm":
+        lines = [
+            header("NUKE"),
+            "",
+            f"  {yellow('WARNING: This will permanently destroy:')}",
+            f"    - All files on your gateway",
+            f"    - All connection history records",
+            f"    - Reduces criminal record by half",
+            "",
+            f"  {cyan('Cost:')} {yellow(f'{NUKE_COST:,} credits')}",
+            f"  {cyan('Balance:')} {green(f'{gs.balance:,} credits')}",
+            "",
+        ]
+        if gs.balance < NUKE_COST:
+            lines.append(f"  {error('Insufficient funds.')}")
+        else:
+            lines.append(f"  {dim('Type')} {bright_green('nuke confirm')} {dim('to proceed.')}")
+        lines.append("")
+        return "\n".join(lines)
+
+    # Check funds
+    if gs.balance < NUKE_COST:
+        return error(f"Insufficient funds. Need {NUKE_COST:,}c, have {gs.balance:,}c.")
+
+    # Execute nuke
+    gw = Computer.query.filter_by(game_session_id=gsid, ip=gs.gateway_ip).first()
+    if gw:
+        files = DataFile.query.filter_by(computer_id=gw.id).all()
+        for f in files:
+            db.session.delete(f)
+
+    # Delete all connection history
+    history = ConnectionHistory.query.filter_by(game_session_id=gsid).all()
+    for h in history:
+        db.session.delete(h)
+
+    # Halve criminal record
+    old_record = gs.criminal_record
+    gs.criminal_record = gs.criminal_record // 2
+
+    # Deduct cost
+    gs.balance -= NUKE_COST
+    db.session.commit()
+
+    file_count = len(files) if gw else 0
+    hist_count = len(history)
+    lines = [
+        "",
+        success("NUKE COMPLETE"),
+        f"  {dim(f'{file_count} file(s) destroyed')}",
+        f"  {dim(f'{hist_count} history record(s) erased')}",
+        f"  {dim(f'Criminal record: {old_record} → {gs.criminal_record}')}",
+        f"  {dim(f'Cost: {NUKE_COST:,}c')}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+registry.register(
+    "nuke", cmd_nuke,
+    states=[SessionState.IN_GAME],
+    usage="nuke [confirm]",
+    description="Wipe gateway files and history",
+)
+
+
+def cmd_stats(args, session):
+    """Show career statistics summary."""
+    gs = db.session.get(GameSession, session.game_session_id)
+    if not gs:
+        return error("No active game session.")
+
+    from ..game.constants import (
+        get_rating_name, get_criminal_level_name,
+        MISSION_COMPLETED, FACTION_NONE, FACTION_ARC, FACTION_ARUNMOR,
+    )
+    from ..models import Mission
+
+    rating_name = get_rating_name(gs.uplink_rating)
+    criminal_name = get_criminal_level_name(gs.criminal_record)
+
+    # Play time
+    total_seconds = gs.game_time_ticks / 5
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+
+    # Mission stats
+    completed = Mission.query.filter_by(
+        game_session_id=gs.id, status=MISSION_COMPLETED
+    ).all()
+    total_earned = sum(m.payment for m in completed)
+
+    # Mission breakdown by type
+    breakdown = {}
+    for m in completed:
+        label = m.mission_type.replace("_", " ").title()
+        breakdown[label] = breakdown.get(label, 0) + 1
+
+    lines = [header("CAREER STATISTICS"), ""]
+    lines.append(f"  {cyan('Agent:')}    {bright_green(session.username or 'AGENT')}")
+    lines.append(f"  {cyan('Rating:')}   {green(f'{rating_name} ({gs.uplink_rating})')}")
+    lines.append(f"  {cyan('Balance:')}  {green(f'{gs.balance:,} credits')}")
+    lines.append(f"  {cyan('Record:')}   {yellow(f'{criminal_name} ({gs.criminal_record} offense(s))')}")
+    lines.append(f"  {cyan('Playtime:')} {dim(f'{hours}h {minutes}m')}")
+    lines.append("")
+
+    # Missions
+    lines.append(f"  {cyan('Missions Completed:')} {green(str(len(completed)))}")
+    lines.append(f"  {cyan('Total Earned:')}       {green(f'{total_earned:,} credits')}")
+    if breakdown:
+        lines.append("")
+        lines.append(f"  {cyan('Mission Breakdown:')}")
+        for mtype, count in sorted(breakdown.items()):
+            lines.append(f"    {dim(f'{mtype}:')} {green(str(count))}")
+
+    # Plot status
+    lines.append("")
+    from ..game.constants import PLOT_ACT_NONE
+    from ..game.plot_engine import get_plot_status
+    status = get_plot_status(gs)
+    if status.get("plot_complete"):
+        ending = status.get("ending", "")
+        if ending == "arc_victory":
+            lines.append(f"  {cyan('Plot:')} {bright_green('Complete')} — {dim('ARC Victory')}")
+        else:
+            lines.append(f"  {cyan('Plot:')} {bright_green('Complete')} — {dim('Arunmor Victory')}")
+    elif gs.plot_act == PLOT_ACT_NONE:
+        lines.append(f"  {cyan('Plot:')} {dim('Not yet started')}")
+    else:
+        loyalty_str = "Neutral"
+        if gs.player_loyalty == FACTION_ARC:
+            loyalty_str = "ARC Technologies"
+        elif gs.player_loyalty == FACTION_ARUNMOR:
+            loyalty_str = "Arunmor Corporation"
+        lines.append(f"  {cyan('Plot:')} {green(status['act_name'])} — {dim(loyalty_str)}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "stats", cmd_stats,
+    states=[SessionState.IN_GAME],
+    description="Show career statistics",
 )
 
 
