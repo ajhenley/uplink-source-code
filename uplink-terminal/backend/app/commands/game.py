@@ -1323,6 +1323,76 @@ registry.register(
 )
 
 
+def cmd_stocks(args, session):
+    """Show stock portfolio and current holdings."""
+    if session.is_connected:
+        return error("Disconnect first (type 'dc').")
+
+    gs = db.session.get(GameSession, session.game_session_id)
+    if not gs:
+        return error("No active game session.")
+
+    from ..game.stock_engine import get_portfolio
+
+    portfolio, total_value, total_cost = get_portfolio(gs)
+
+    lines = [header("STOCK PORTFOLIO"), ""]
+
+    if not portfolio:
+        lines.append(f"  {dim('No stocks owned.')}")
+        lines.append(f"  {dim('Visit the International Stock Exchange to trade.')}")
+    else:
+        lines.append(
+            f"  {cyan('Company'):<28} {cyan('Shares'):<10} {cyan('Avg'):<10} "
+            f"{cyan('Now'):<10} {cyan('Value'):<12} {cyan('P/L')}"
+        )
+        lines.append(f"  {dim('-' * 72)}")
+
+        for h in portfolio:
+            profit = h["profit"]
+            if profit > 0:
+                pl_str = bright_green(f"+{profit:,}c")
+            elif profit < 0:
+                pl_str = yellow(f"{profit:,}c")
+            else:
+                pl_str = dim("0c")
+
+            avg_p = h['avg_price']
+            cur_p = h['current_price']
+            val = h['value']
+            lines.append(
+                f"  {green(h['company']):<28} {dim(str(h['shares'])):<10} "
+                f"{dim(f'{avg_p}c'):<10} {yellow(f'{cur_p}c'):<10} "
+                f"{green(f'{val:,}c'):<12} {pl_str}"
+            )
+
+        total_pl = total_value - total_cost
+        if total_pl > 0:
+            total_pl_str = bright_green(f"+{total_pl:,}c")
+        elif total_pl < 0:
+            total_pl_str = yellow(f"{total_pl:,}c")
+        else:
+            total_pl_str = dim("0c")
+
+        lines.append(f"  {dim('-' * 72)}")
+        lines.append(
+            f"  {cyan('Total:'):<28} {'':10} {'':10} {'':10} "
+            f"{green(f'{total_value:,}c'):<12} {total_pl_str}"
+        )
+
+    lines.append("")
+    lines.append(f"  {cyan('Balance:')} {green(f'{gs.balance:,}c')}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "stocks", cmd_stocks,
+    states=[SessionState.IN_GAME],
+    description="Show stock portfolio",
+)
+
+
 def cmd_plot(args, session):
     """Show current plot status — act, loyalty, faction messages."""
     gs = db.session.get(GameSession, session.game_session_id)

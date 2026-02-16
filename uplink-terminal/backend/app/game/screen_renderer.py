@@ -25,6 +25,7 @@ def render_screen(computer, screen, session=None):
         SCREEN_NEWS: _render_news,
         SCREEN_RANKINGS: _render_rankings,
         SCREEN_LAN: _render_lan,
+        SCREEN_STOCKMARKET: _render_stockmarket,
     }
     renderer = renderers.get(screen.screen_type, _render_unknown)
     return renderer(computer, screen, session)
@@ -651,6 +652,66 @@ def _render_lan(computer, screen, session):
     lines.append("")
     lines.append(dim("  Commands: scan, move <#>, hack, ls, download <file>,"))
     lines.append(dim("           probe <#>, delete <file>, deletelogs, exit"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_stockmarket(computer, screen, session):
+    """Render STOCKMARKET screen with company listings and prices."""
+    from ..models import GameSession, StockHolding
+
+    lines = _screen_header(screen.title, screen.subtitle)
+
+    if not session:
+        lines.append(f"  {dim('No session context.')}")
+        return "\n".join(lines)
+
+    from ..extensions import db
+    gs = db.session.get(GameSession, session.game_session_id) if session.game_session_id else None
+    market = gs.plot_data.get("stock_market", {}) if gs else {}
+
+    if not market:
+        lines.append(f"  {dim('No stocks available.')}")
+        return "\n".join(lines)
+
+    # Build owned shares lookup
+    owned = {}
+    if gs:
+        for h in StockHolding.query.filter_by(game_session_id=gs.id).all():
+            if h.shares > 0:
+                owned[h.company_name] = h.shares
+
+    lines.append(
+        f"  {cyan('#'):<6} {cyan('Company'):<28} {cyan('Price'):<10} "
+        f"{cyan('Change'):<10} {cyan('Owned')}"
+    )
+    lines.append(f"  {dim('-' * 62)}")
+
+    for i, (name, data) in enumerate(sorted(market.items()), 1):
+        price = data["price"]
+        prev = data.get("prev_price", price)
+        change = price - prev
+        if change > 0:
+            change_str = bright_green(f"+{change}c")
+        elif change < 0:
+            change_str = yellow(f"{change}c")
+        else:
+            change_str = dim("0c")
+
+        shares_owned = owned.get(name, 0)
+        own_str = green(str(shares_owned)) if shares_owned > 0 else dim("0")
+
+        lines.append(
+            f"  {bright_green(str(i) + '.'):<6} {green(name):<28} "
+            f"{yellow(f'{price}c'):<10} {change_str:<10} {own_str}"
+        )
+
+    lines.append("")
+    if gs:
+        lines.append(f"  {cyan('Balance:')} {green(f'{gs.balance:,}c')}")
+    lines.append("")
+    lines.append(dim("  'buy <#> <shares>' to buy, 'sell <#> <shares>' to sell"))
+    lines.append(dim("  'back' to return, 'dc' to disconnect"))
     lines.append("")
     return "\n".join(lines)
 

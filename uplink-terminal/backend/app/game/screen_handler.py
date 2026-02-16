@@ -42,6 +42,7 @@ def handle_screen_input(text, session):
         SCREEN_NEWS: _handle_news,
         SCREEN_RANKINGS: _handle_rankings,
         SCREEN_LAN: _handle_lan,
+        SCREEN_STOCKMARKET: _handle_stockmarket,
     }
 
     handler = handlers.get(screen.screen_type)
@@ -798,6 +799,55 @@ def _handle_rankings(text, computer, screen, session):
             if s.screen_type == SCREEN_MENU:
                 return _navigate_to(session, computer, s.screen_index)
         return _navigate_to(session, computer, 0)
+    return None
+
+
+def _handle_stockmarket(text, computer, screen, session):
+    """STOCKMARKET: 'buy <#> <shares>', 'sell <#> <shares>', 'back'."""
+    parts = text.strip().split()
+    cmd = parts[0].lower() if parts else ""
+
+    if cmd == "back":
+        return _navigate_to(session, computer, 0)
+
+    gsid = session.game_session_id
+    gs = db.session.get(GameSession, gsid) if gsid else None
+    if not gs:
+        return error("No active game session.")
+
+    market = gs.plot_data.get("stock_market", {})
+    sorted_names = sorted(market.keys())
+
+    if cmd in ("buy", "sell"):
+        if len(parts) < 3:
+            return error(f"Usage: {cmd} <company#> <shares>")
+        try:
+            idx = int(parts[1])
+            num_shares = int(parts[2])
+        except ValueError:
+            return error(f"Usage: {cmd} <company#> <shares>")
+
+        if idx < 1 or idx > len(sorted_names):
+            return error(f"Invalid company. Range: 1-{len(sorted_names)}.")
+        if num_shares < 1:
+            return error("Must buy/sell at least 1 share.")
+
+        company_name = sorted_names[idx - 1]
+
+        from .stock_engine import buy_shares, sell_shares
+        if cmd == "buy":
+            ok, msg = buy_shares(gs, company_name, num_shares)
+        else:
+            ok, msg = sell_shares(gs, company_name, num_shares)
+
+        if ok:
+            result = success(msg)
+        else:
+            result = error(msg)
+
+        # Re-render the screen after trade
+        return result + "\n" + render_screen(computer, screen, session)
+
     return None
 
 

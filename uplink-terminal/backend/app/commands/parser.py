@@ -66,7 +66,7 @@ def dispatch(text, terminal_session):
                         "read", "reply", "software", "gateway", "route",
                         "probe", "record", "balance", "missions", "finance",
                         "whoami", "rename", "files", "news", "history",
-                        "plot", "nuke", "stats"}
+                        "plot", "nuke", "stats", "stocks"}
     if (terminal_session.state == SessionState.IN_GAME
             and terminal_session.is_connected
             and cmd_name not in _always_registry):

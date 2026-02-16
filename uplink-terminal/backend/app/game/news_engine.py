@@ -58,3 +58,17 @@ def generate_random_news(game_session_id, tick):
         f"Further details are expected in the coming days."
     )
     generate_news_article(game_session_id, headline, body, "Uplink News Network", tick)
+
+    # Stock sentiment from news headlines
+    from .stock_engine import add_sentiment
+    from .constants import STOCK_NEWS_POSITIVE_SENTIMENT, STOCK_NEWS_NEGATIVE_SENTIMENT
+    from ..models import GameSession
+    gs = db.session.get(GameSession, game_session_id)
+    if gs:
+        positive_kw = ["record", "profits", "partnership", "surge", "wins", "product", "exceeds"]
+        negative_kw = ["leak", "lays off", "resigns", "scandal", "attack", "fraud", "vulnerability", "lawsuit", "fire"]
+        hl = headline.lower()
+        if any(kw in hl for kw in negative_kw):
+            add_sentiment(gs, company, STOCK_NEWS_NEGATIVE_SENTIMENT)
+        elif any(kw in hl for kw in positive_kw):
+            add_sentiment(gs, company, STOCK_NEWS_POSITIVE_SENTIMENT)

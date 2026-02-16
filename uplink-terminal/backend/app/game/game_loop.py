@@ -72,6 +72,12 @@ def tick():
             from .news_engine import generate_random_news
             generate_random_news(gs.id, gs.game_time_ticks)
 
+        # --- Stock market fluctuation (every ~100 ticks) ---
+        from .constants import STOCK_TICK_INTERVAL
+        if gs.game_time_ticks % STOCK_TICK_INTERVAL < gs.speed_multiplier:
+            from .stock_engine import tick_stocks
+            tick_stocks(gs)
+
         # --- NPC agent missions (every ~400 ticks) ---
         if gs.game_time_ticks % NPC_MISSION_INTERVAL < gs.speed_multiplier:
             _tick_npc_agents(gs)
@@ -561,6 +567,12 @@ def _admin_review(gs, ts):
             f"{comp.company_name} Security",
             gs.game_time_ticks,
         )
+
+        # Stock market impact: breach drops company stock
+        from .stock_engine import add_sentiment
+        from .constants import STOCK_BREACH_SENTIMENT
+        if comp.company_name:
+            add_sentiment(gs, comp.company_name, STOCK_BREACH_SENTIMENT)
 
         # Mark logs as invisible (prevents double-punishment)
         for log in suspicious_logs:

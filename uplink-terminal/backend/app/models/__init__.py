@@ -16,6 +16,7 @@ from .hardware import Hardware
 from .bank_account import BankAccount
 from .connection_history import ConnectionHistory
 from .lan_node import LanNode
+from .stock_holding import StockHolding
 
 __all__ = [
     "UserAccount",
@@ -37,4 +38,5 @@ __all__ = [
     "BankAccount",
     "ConnectionHistory",
     "LanNode",
+    "StockHolding",
 ]

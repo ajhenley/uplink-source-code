@@ -9,6 +9,7 @@ IP_SOCIAL_SECURITY = "187.242.55.203"
 IP_ACADEMIC_DB = "201.618.73.312"
 IP_UPLINK_BANK = "491.220.38.901"
 IP_NEWS_NETWORK = "301.444.12.876"
+IP_STOCK_EXCHANGE = "310.555.20.100"
 
 # Starting balance (credits)
 STARTING_BALANCE = 3000
@@ -98,6 +99,7 @@ SCREEN_NEWS = "NEWS"
 SCREEN_RANKINGS = "RANKINGS"
 SCREEN_LAN = "LAN"
 SCREEN_VOICEPRINT = "VOICEPRINT"
+SCREEN_STOCKMARKET = "STOCKMARKET"
 
 # Game speed labels
 SPEED_LABELS = {0: "Paused", 1: "Normal", 3: "Fast", 8: "MegaFast"}
@@ -116,6 +118,7 @@ MISSION_TRACE_USER = "TRACE_USER"
 MISSION_REMOVE_COMPUTER = "REMOVE_COMPUTER"
 MISSION_CHANGE_SOCIAL = "CHANGE_SOCIAL"
 MISSION_DENIAL_OF_SERVICE = "DENIAL_OF_SERVICE"
+MISSION_STOCK_FRAUD = "STOCK_FRAUD"
 
 # Mission statuses
 MISSION_AVAILABLE = "AVAILABLE"
@@ -306,6 +309,7 @@ MISSION_PAYMENTS = {
     "REMOVE_COMPUTER": (5000, 0.3),
     "CHANGE_SOCIAL": (2500, 0.3),
     "DENIAL_OF_SERVICE": (4000, 0.3),
+    "STOCK_FRAUD": (5000, 0.3),
 }
 
 # Uplink rating names
@@ -332,6 +336,7 @@ RATING_GAIN = {
     "REMOVE_COMPUTER": 10,
     "CHANGE_SOCIAL": 5,
     "DENIAL_OF_SERVICE": 7,
+    "STOCK_FRAUD": 8,
 }
 
 # Tool name aliases (user-facing name → tool type)
@@ -569,6 +574,17 @@ SYSADMIN_SENSITIVE_NODES = {LAN_FILE_SERVER, LAN_MAINFRAME, LAN_LOG_SERVER}
 SYSADMIN_CURIOUS_TICKS = 50      # ~10s at 1x before searching
 SYSADMIN_SEARCH_STEP_TICKS = 25  # ~5s per node step
 SYSADMIN_TICK_INTERVAL = 5       # check every 5 ticks
+
+
+# --- Stock market ---
+STOCK_TICK_INTERVAL = 100        # ticks between price updates (~20s at 1x)
+STOCK_BASE_PRICE = 100           # starting share price for size-1 company
+STOCK_PRICE_PER_SIZE = 50        # additional price per company size
+STOCK_VOLATILITY = 0.04          # max % random walk per tick (4%)
+STOCK_SENTIMENT_DECAY = 0.7      # sentiment multiplied by this each tick
+STOCK_BREACH_SENTIMENT = -3      # sentiment hit when company is breached
+STOCK_NEWS_POSITIVE_SENTIMENT = 1  # positive news sentiment boost
+STOCK_NEWS_NEGATIVE_SENTIMENT = -1  # negative news sentiment hit
 
 
 def get_rating_name(rating):

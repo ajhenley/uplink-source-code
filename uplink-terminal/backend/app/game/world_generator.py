@@ -520,6 +520,40 @@ def generate_world(game_session_id):
         has_lan = name in lan_company_names
         _create_company_computers(gsid, name, size, company_type=ctype, has_lan=has_lan)
 
+    # --- International Stock Exchange ---
+    _add_location(gsid, IP_STOCK_EXCHANGE, listed=True)
+    stock_comp = Computer(
+        game_session_id=gsid,
+        name="International Stock Exchange",
+        ip=IP_STOCK_EXCHANGE,
+        computer_type=COMP_PUBLIC_ACCESS,
+        company_name="Stock Exchange",
+        admin_password=None,
+        trace_speed=0,
+        trace_action="",
+    )
+    db.session.add(stock_comp)
+    db.session.flush()
+
+    _add_screen(stock_comp.id, 0, SCREEN_MESSAGE,
+                title="International Stock Exchange",
+                subtitle="Global Securities Trading Platform",
+                content={"text": (
+                    "Welcome to the International Stock Exchange.\n\n"
+                    "Trade shares in publicly listed companies.\n"
+                    "Stock prices fluctuate based on market conditions\n"
+                    "and company performance.\n\n"
+                    "Press Enter to access the trading floor."
+                )},
+                next_screen=1)
+    _add_screen(stock_comp.id, 1, SCREEN_STOCKMARKET,
+                title="Trading Floor",
+                subtitle="International Stock Exchange")
+
+    # Initialize stock prices from company data
+    from .stock_engine import init_stock_prices
+    init_stock_prices(gs, company_specs)
+
     # --- Place voiceprint files on company ISMs ---
     # Each voice admin's voiceprint goes on a different company ISM
     company_isms = Computer.query.filter_by(
@@ -563,6 +597,9 @@ def generate_world(game_session_id):
     ))
     db.session.add(PlayerLink(
         game_session_id=gsid, ip=IP_ARUNMOR, label="Arunmor Corporation",
+    ))
+    db.session.add(PlayerLink(
+        game_session_id=gsid, ip=IP_STOCK_EXCHANGE, label="International Stock Exchange",
     ))
 
     # --- Connection object ---

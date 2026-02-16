@@ -117,6 +117,12 @@ def generate_missions(game_session_id, count=None):
     if isms_with_core:
         mission_types.append(MISSION_DENIAL_OF_SERVICE)
 
+    # Stock fraud missions (need stock market + rating >= 9)
+    if gs.uplink_rating >= 9:
+        market = gs.plot_data.get("stock_market", {})
+        if market:
+            mission_types.append(MISSION_STOCK_FRAUD)
+
     # LAN file missions (need ISMs with LAN file/mainframe nodes containing files)
     viable_lan_targets = []
     if gs.uplink_rating >= 8:
@@ -164,6 +170,8 @@ def generate_missions(game_session_id, count=None):
             continue
         if mtype == MISSION_DENIAL_OF_SERVICE and not isms_with_core:
             continue
+        if mtype == MISSION_STOCK_FRAUD and not gs.plot_data.get("stock_market"):
+            continue
 
         if mtype == MISSION_LAN_DESTROY:
             mission = _generate_lan_destroy_mission(gs, viable_lan_targets)
@@ -185,6 +193,8 @@ def generate_missions(game_session_id, count=None):
             mission = _generate_remove_computer_mission(gs, viable_targets)
         elif mtype == MISSION_DENIAL_OF_SERVICE:
             mission = _generate_denial_of_service_mission(gs, isms_with_core)
+        elif mtype == MISSION_STOCK_FRAUD:
+            mission = _generate_stock_fraud_mission(gs)
         else:
             mission = _generate_file_mission(gs, mtype, viable_targets)
 
@@ -690,6 +700,70 @@ def _generate_denial_of_service_mission(gs, isms_with_core):
     )
 
 
+def _generate_stock_fraud_mission(gs):
+    """Generate a STOCK_FRAUD mission -- manipulate a company's stock price."""
+    market = gs.plot_data.get("stock_market", {})
+    if not market:
+        return None
+
+    # Pick a random company with stock
+    company_name = random.choice(list(market.keys()))
+    current_price = market[company_name]["price"]
+
+    # Target: crash the stock by at least 30%
+    target_price = int(current_price * 0.7)
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_STOCK_FRAUD]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    employer = random.choice([n for n in COMPANY_NAMES if n != company_name])
+    description = f"Crash {company_name} stock price"
+    details = (
+        f"Manipulate {company_name}'s stock price below {target_price}c per share."
+    )
+    full_details = (
+        f"Target Company: {company_name}\n"
+        f"Current Price: {current_price}c per share\n"
+        f"Target Price: below {target_price}c per share\n\n"
+        f"A client wants {company_name}'s stock price to crash.\n"
+        f"Hack their systems to trigger a security breach -- this\n"
+        f"will cause their stock to plummet. Leave suspicious logs\n"
+        f"visible so the breach is discovered during admin review.\n\n"
+        f"Once the stock drops below {target_price}c, reply to\n"
+        f"the mission email to confirm."
+    )
+
+    # Find the company's ISM IP for target_ip
+    ism = Computer.query.filter_by(
+        game_session_id=gs.id,
+        computer_type=COMP_INTERNAL,
+        company_name=company_name,
+    ).first()
+    target_ip = ism.ip if ism else ""
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_STOCK_FRAUD,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=target_ip,
+        target_filename=None,
+        target_data={
+            "company_name": company_name,
+            "target_price": target_price,
+            "original_price": current_price,
+        },
+        payment=payment,
+        difficulty=4,
+        min_rating=9,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
 def _check_denial_of_service(gs, mission):
     """Verify system_core.sys no longer exists on the target ISM."""
     target_comp = Computer.query.filter_by(
@@ -707,6 +781,26 @@ def _check_denial_of_service(gs, mission):
             f"Use File Deleter to remove it."
         )
     return True, "System core destroyed — server offline."
+
+
+def _check_stock_fraud(gs, mission):
+    """Verify the target company's stock has dropped below the target price."""
+    data = mission.target_data
+    company_name = data.get("company_name", "")
+    target_price = data.get("target_price", 0)
+
+    market = gs.plot_data.get("stock_market", {})
+    if company_name not in market:
+        return False, f"Company '{company_name}' not found in stock market."
+
+    current_price = market[company_name]["price"]
+    if current_price >= target_price:
+        return False, (
+            f"{company_name} stock is at {current_price}c. "
+            f"Need it below {target_price}c. Hack their systems and "
+            f"leave logs visible for admin review."
+        )
+    return True, f"Stock crashed to {current_price}c (target was {target_price}c)."
 
 
 def accept_mission(game_session_id, mission_id):
@@ -810,6 +904,8 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_remove_computer(gs, mission)
     elif mission.mission_type == MISSION_DENIAL_OF_SERVICE:
         ok, msg = _check_denial_of_service(gs, mission)
+    elif mission.mission_type == MISSION_STOCK_FRAUD:
+        ok, msg = _check_stock_fraud(gs, mission)
     elif mission.mission_type == MISSION_PLOT_STEAL:
         ok, msg = _check_steal_file(gs, mission)
     elif mission.mission_type == MISSION_PLOT_DESTROY:
@@ -916,6 +1012,22 @@ def check_mission_completion(game_session_id, mission_id):
                 f"flagged during a routine background check."
             ),
             "Federal Investigation Bureau",
+            gs.game_time_ticks,
+        )
+
+    # Stock fraud: market manipulation news
+    if mission.mission_type == MISSION_STOCK_FRAUD:
+        company_name = mission.target_data.get("company_name", "Unknown")
+        generate_news_article(
+            game_session_id,
+            f"{company_name} stock crashes amid security concerns",
+            (
+                f"Shares in {company_name} plummeted today following reports\n"
+                f"of a major security breach. Investors dumped holdings as\n"
+                f"news spread of unauthorized access to company systems.\n"
+                f"Market regulators are investigating potential manipulation."
+            ),
+            "Financial Times",
             gs.game_time_ticks,
         )
 
