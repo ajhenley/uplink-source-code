@@ -76,6 +76,23 @@ def generate_missions(game_session_id, count=None):
     if criminal_records and gs.uplink_rating >= 6:
         mission_types.append(MISSION_CHANGE_CRIMINAL)
 
+    # Innocent criminal records (for FRAME_USER — must have convictions="None")
+    innocent_criminal_records = [
+        r for r in criminal_records
+        if r.content.get("convictions") == "None"
+    ]
+
+    if innocent_criminal_records and gs.uplink_rating >= 8:
+        mission_types.append(MISSION_FRAME_USER)
+
+    # Trace user missions (copy gov record to gateway)
+    if (academic_records or criminal_records) and gs.uplink_rating >= 4:
+        mission_types.append(MISSION_TRACE_USER)
+
+    # Remove computer missions (wipe all files on ISM)
+    if viable_targets and gs.uplink_rating >= 10:
+        mission_types.append(MISSION_REMOVE_COMPUTER)
+
     # LAN file missions (need ISMs with LAN file/mainframe nodes containing files)
     viable_lan_targets = []
     if gs.uplink_rating >= 8:
@@ -113,6 +130,12 @@ def generate_missions(game_session_id, count=None):
             continue
         if mtype == MISSION_LAN_DESTROY and not viable_lan_targets:
             continue
+        if mtype == MISSION_FRAME_USER and not innocent_criminal_records:
+            continue
+        if mtype == MISSION_TRACE_USER and not (academic_records or criminal_records):
+            continue
+        if mtype == MISSION_REMOVE_COMPUTER and not viable_targets:
+            continue
 
         if mtype == MISSION_LAN_DESTROY:
             mission = _generate_lan_destroy_mission(gs, viable_lan_targets)
@@ -124,6 +147,12 @@ def generate_missions(game_session_id, count=None):
             mission = _generate_change_academic_mission(gs, academic_comp, academic_records)
         elif mtype == MISSION_CHANGE_CRIMINAL:
             mission = _generate_change_criminal_mission(gs, criminal_comp, criminal_records)
+        elif mtype == MISSION_FRAME_USER:
+            mission = _generate_frame_user_mission(gs, criminal_comp, innocent_criminal_records)
+        elif mtype == MISSION_TRACE_USER:
+            mission = _generate_trace_user_mission(gs, academic_comp, academic_records, criminal_comp, criminal_records)
+        elif mtype == MISSION_REMOVE_COMPUTER:
+            mission = _generate_remove_computer_mission(gs, viable_targets)
         else:
             mission = _generate_file_mission(gs, mtype, viable_targets)
 
@@ -373,6 +402,164 @@ def _generate_change_criminal_mission(gs, criminal_comp, records):
     )
 
 
+def _generate_frame_user_mission(gs, criminal_comp, innocent_records):
+    """Generate a FRAME_USER mission — plant a conviction on an innocent NPC."""
+    rec = random.choice(innocent_records)
+    content = rec.content
+
+    # Pick a conviction to plant
+    conviction = random.choice([c for c in CRIMINAL_CONVICTIONS if c != "None"])
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_FRAME_USER]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    person_name = content.get("name", "Unknown")
+    employer = random.choice(COMPANY_NAMES)
+    description = f"Frame {person_name} for {conviction.lower()}"
+    details = (
+        f"Plant a '{conviction}' conviction on {person_name}'s criminal record."
+    )
+    full_details = (
+        f"Target: Global Criminal Database\n"
+        f"IP: {IP_CRIMINAL_DB}\n"
+        f"Person: {person_name}\n"
+        f"File: {rec.filename}\n\n"
+        f"This individual currently has a clean record. Change the\n"
+        f"'convictions' field to '{conviction}' to frame them.\n"
+        f"Use 'edit {rec.filename} convictions {conviction}' on the target system.\n\n"
+        f"Once the record is changed, reply to the mission email to confirm."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_FRAME_USER,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=IP_CRIMINAL_DB,
+        target_filename=rec.filename,
+        target_data={
+            "person_name": person_name,
+            "field": "convictions",
+            "required_value": conviction,
+        },
+        payment=payment,
+        difficulty=4,
+        min_rating=8,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _generate_trace_user_mission(gs, academic_comp, academic_records, criminal_comp, criminal_records):
+    """Generate a TRACE_USER mission — copy a government record to the gateway."""
+    # 50/50 chance of academic vs criminal
+    use_academic = random.random() < 0.5 if (academic_records and criminal_records) else bool(academic_records)
+
+    if use_academic and academic_records:
+        rec = random.choice(academic_records)
+        target_ip = IP_ACADEMIC_DB
+        db_name = "International Academic Database"
+    elif criminal_records:
+        rec = random.choice(criminal_records)
+        target_ip = IP_CRIMINAL_DB
+        db_name = "Global Criminal Database"
+    else:
+        return None
+
+    content = rec.content
+    person_name = content.get("name", "Unknown")
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_TRACE_USER]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    employer = random.choice(COMPANY_NAMES)
+    description = f"Trace records for {person_name}"
+    details = (
+        f"Copy {person_name}'s record from the {db_name} to your gateway."
+    )
+    full_details = (
+        f"Target: {db_name}\n"
+        f"IP: {target_ip}\n"
+        f"Person: {person_name}\n"
+        f"File: {rec.filename}\n\n"
+        f"Hack into the {db_name}, locate the record for {person_name},\n"
+        f"and use a File Copier to download '{rec.filename}' to your gateway.\n\n"
+        f"Once you have the file, reply to the mission email to confirm."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_TRACE_USER,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=target_ip,
+        target_filename=rec.filename,
+        target_data={
+            "person_name": person_name,
+            "database": db_name,
+        },
+        payment=payment,
+        difficulty=2,
+        min_rating=4,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _generate_remove_computer_mission(gs, viable_targets):
+    """Generate a REMOVE_COMPUTER mission — wipe all files on a company ISM."""
+    target_comp, target_files = random.choice(viable_targets)
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_REMOVE_COMPUTER]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    employer = random.choice(COMPANY_NAMES)
+    file_count = len(target_files)
+    description = f"Destroy all data on {target_comp.company_name}"
+    details = (
+        f"Delete ALL files ({file_count}) from the {target_comp.company_name} "
+        f"Internal Services Machine."
+    )
+    full_details = (
+        f"Target: {target_comp.name}\n"
+        f"IP: {target_comp.ip}\n"
+        f"Files on target: {file_count}\n\n"
+        f"Delete EVERY file on the target system. You will need to\n"
+        f"run the File Deleter on each file individually.\n\n"
+        f"WARNING: This requires extended time on the target system.\n"
+        f"Use bounce routing and consider disabling the monitor to\n"
+        f"reduce trace exposure.\n\n"
+        f"Once all files are destroyed, reply to the mission email."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_REMOVE_COMPUTER,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=target_comp.ip,
+        target_filename=None,
+        target_data={
+            "computer_name": target_comp.name,
+            "original_file_count": file_count,
+        },
+        payment=payment,
+        difficulty=5,
+        min_rating=10,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
 def accept_mission(game_session_id, mission_id):
     """Accept a mission from the BBS.
 
@@ -464,6 +651,12 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_lan_file(gs, mission)
     elif mission.mission_type == MISSION_LAN_DESTROY:
         ok, msg = _check_lan_destroy(gs, mission)
+    elif mission.mission_type == MISSION_FRAME_USER:
+        ok, msg = _check_change_criminal(gs, mission)
+    elif mission.mission_type == MISSION_TRACE_USER:
+        ok, msg = _check_steal_file(gs, mission)
+    elif mission.mission_type == MISSION_REMOVE_COMPUTER:
+        ok, msg = _check_remove_computer(gs, mission)
     elif mission.mission_type == MISSION_PLOT_STEAL:
         ok, msg = _check_steal_file(gs, mission)
     elif mission.mission_type == MISSION_PLOT_DESTROY:
@@ -519,6 +712,23 @@ def check_mission_completion(game_session_id, mission_id):
         "Uplink Corporation",
         gs.game_time_ticks,
     )
+
+    # Frame User: special arrest news article
+    if mission.mission_type == MISSION_FRAME_USER:
+        person_name = mission.target_data.get("person_name", "Unknown")
+        conviction = mission.target_data.get("required_value", "criminal activity")
+        generate_news_article(
+            game_session_id,
+            f"{person_name} arrested for {conviction.lower()}",
+            (
+                f"{person_name} has been arrested following the discovery\n"
+                f"of a '{conviction}' conviction on their criminal record.\n"
+                f"Federal authorities acted swiftly after the record was\n"
+                f"flagged during a routine background check."
+            ),
+            "Federal Investigation Bureau",
+            gs.game_time_ticks,
+        )
 
     db.session.commit()
 
@@ -703,6 +913,23 @@ def _check_change_criminal(gs, mission):
         )
 
     return True, "Record updated correctly."
+
+
+def _check_remove_computer(gs, mission):
+    """Verify the target computer has zero DataFile rows."""
+    target_comp = Computer.query.filter_by(
+        game_session_id=gs.id, ip=mission.target_ip
+    ).first()
+    if not target_comp:
+        return False, "Target computer not found."
+
+    remaining = DataFile.query.filter_by(computer_id=target_comp.id).count()
+    if remaining > 0:
+        return False, (
+            f"{remaining} file(s) still exist on {mission.target_ip}. "
+            f"Delete every file using File Deleter."
+        )
+    return True, "All files destroyed."
 
 
 def _generate_lan_file_mission(gs, viable_lan_targets):

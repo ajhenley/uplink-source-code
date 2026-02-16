@@ -293,6 +293,9 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
     elif tool_type == TOOL_LOG_DELETER:
         raw = base  # flat 60 ticks
 
+    elif tool_type == TOOL_LOG_MODIFIER:
+        raw = base  # flat 40 ticks
+
     elif tool_type in (TOOL_PROXY_DISABLE, TOOL_FIREWALL_DISABLE, TOOL_MONITOR_BYPASS):
         # Ticks per security level
         comp = Computer.query.filter_by(
@@ -387,6 +390,8 @@ def _execute_tool_effect(rt, ts=None):
         _effect_bypasser(rt)
     elif rt.tool_type == TOOL_IP_PROBE:
         _effect_ip_probe(rt)
+    elif rt.tool_type == TOOL_LOG_MODIFIER:
+        _effect_log_modifier(rt)
 
 
 def _effect_password_breaker(rt, ts=None):
@@ -702,3 +707,26 @@ def _effect_ip_probe(rt):
 
     rt.result = {"discovered": discovered, "on_ip": rt.target_ip}
     # IP Probe is non-suspicious — no access log created
+
+
+def _effect_log_modifier(rt):
+    """Modify suspicious access logs to disguise the attacker."""
+    import random as _rng
+
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp:
+        return
+
+    logs = AccessLog.query.filter_by(
+        computer_id=comp.id, is_visible=True, suspicious=True
+    ).all()
+    count = 0
+    for log in logs:
+        log.from_name = _rng.choice(NPC_NAMES)
+        log.from_ip = f"{_rng.randint(100, 499)}.{_rng.randint(100, 999)}.{_rng.randint(0, 99)}.{_rng.randint(1, 999)}"
+        log.suspicious = False
+        count += 1
+
+    rt.result = {"logs_modified": count, "on_ip": rt.target_ip}

@@ -534,7 +534,7 @@ def cmd_run(args, session):
         return error("Usage: run <tool> [param]\n"
                       "  Tools: password_breaker, file_copier <file>, "
                       "file_deleter <file>, log_deleter,\n"
-                      "         proxy_disable, firewall_disable, "
+                      "         log_modifier, proxy_disable, firewall_disable, "
                       "monitor_bypass, decrypter <file>,\n"
                       "         bypasser, ip_probe")
 

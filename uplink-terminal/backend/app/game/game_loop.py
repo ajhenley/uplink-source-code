@@ -215,6 +215,9 @@ def _push_tool_events(ts, events):
                     msg = success(f"{tool_name} complete — discovered: {names}. Added to links.")
                 else:
                     msg = success(f"{tool_name} complete — no new systems discovered.")
+            elif rt.tool_type == "LOG_MODIFIER":
+                count = rt.result.get("logs_modified", 0) if rt.result else 0
+                msg = success(f"{tool_name} complete — {count} log(s) modified to look innocent.")
             else:
                 msg = success(f"{tool_name} complete.")
 

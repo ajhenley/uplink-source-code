@@ -110,6 +110,9 @@ MISSION_CHANGE_ACADEMIC = "CHANGE_ACADEMIC"
 MISSION_CHANGE_CRIMINAL = "CHANGE_CRIMINAL"
 MISSION_LAN_FILE = "LAN_FILE"
 MISSION_LAN_DESTROY = "LAN_DESTROY"
+MISSION_FRAME_USER = "FRAME_USER"
+MISSION_TRACE_USER = "TRACE_USER"
+MISSION_REMOVE_COMPUTER = "REMOVE_COMPUTER"
 
 # Mission statuses
 MISSION_AVAILABLE = "AVAILABLE"
@@ -130,6 +133,7 @@ TOOL_MONITOR_BYPASS = "MONITOR_BYPASS"
 TOOL_DECRYPTER = "DECRYPTER"
 TOOL_BYPASSER = "BYPASSER"
 TOOL_IP_PROBE = "IP_PROBE"
+TOOL_LOG_MODIFIER = "LOG_MODIFIER"
 
 # Version speed scaling
 VERSION_SPEED_STEP = 0.5
@@ -148,6 +152,7 @@ TOOL_TICKS = {
     "DECRYPTER": 20,          # ticks per GQ file size
     "BYPASSER": 40,           # ticks per security level (before 1.5x penalty)
     "IP_PROBE": 80,           # flat ticks
+    "LOG_MODIFIER": 40,       # flat ticks (faster than LOG_DELETER)
 }
 
 # Tool statuses
@@ -225,6 +230,12 @@ SOFTWARE_CATALOG = [
     ("IP Probe", "IP_PROBE", "3.0", 2, 2800),
     ("IP Probe", "IP_PROBE", "4.0", 3, 4000),
     ("IP Probe", "IP_PROBE", "5.0", 3, 6400),
+    # Log Modifier — stealth log editing (base: 1 GQ, 600c)
+    ("Log Modifier", "LOG_MODIFIER", "1.0", 1, 600),
+    ("Log Modifier", "LOG_MODIFIER", "2.0", 2, 1200),
+    ("Log Modifier", "LOG_MODIFIER", "3.0", 2, 2100),
+    ("Log Modifier", "LOG_MODIFIER", "4.0", 3, 3000),
+    ("Log Modifier", "LOG_MODIFIER", "5.0", 3, 4800),
 ]
 
 # Mission payments (base, variance fraction)
@@ -239,6 +250,9 @@ MISSION_PAYMENTS = {
     "PLOT_STEAL": (6000, 0.0),
     "PLOT_DESTROY": (8000, 0.0),
     "PLOT_DEPLOY": (12000, 0.0),
+    "FRAME_USER": (3500, 0.3),
+    "TRACE_USER": (2000, 0.3),
+    "REMOVE_COMPUTER": (5000, 0.3),
 }
 
 # Uplink rating names
@@ -260,6 +274,9 @@ RATING_GAIN = {
     "PLOT_STEAL": 5,
     "PLOT_DESTROY": 5,
     "PLOT_DEPLOY": 10,
+    "FRAME_USER": 7,
+    "TRACE_USER": 5,
+    "REMOVE_COMPUTER": 10,
 }
 
 # Tool name aliases (user-facing name → tool type)
@@ -275,6 +292,7 @@ TOOL_ALIASES = {
     "decrypter": "DECRYPTER",
     "bypasser": "BYPASSER",
     "ip_probe": "IP_PROBE",
+    "log_modifier": "LOG_MODIFIER",
 }
 
 
