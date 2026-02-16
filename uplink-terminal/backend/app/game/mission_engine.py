@@ -76,6 +76,18 @@ def generate_missions(game_session_id, count=None):
     if criminal_records and gs.uplink_rating >= 6:
         mission_types.append(MISSION_CHANGE_CRIMINAL)
 
+    ss_comp = Computer.query.filter_by(
+        game_session_id=game_session_id, ip=IP_SOCIAL_SECURITY
+    ).first()
+    ss_records = []
+    if ss_comp:
+        ss_records = DataFile.query.filter_by(
+            computer_id=ss_comp.id, file_type="SOCIAL_SECURITY_RECORD"
+        ).all()
+
+    if ss_records and gs.uplink_rating >= 5:
+        mission_types.append(MISSION_CHANGE_SOCIAL)
+
     # Innocent criminal records (for FRAME_USER — must have convictions="None")
     innocent_criminal_records = [
         r for r in criminal_records
@@ -130,6 +142,8 @@ def generate_missions(game_session_id, count=None):
             continue
         if mtype == MISSION_LAN_DESTROY and not viable_lan_targets:
             continue
+        if mtype == MISSION_CHANGE_SOCIAL and not ss_records:
+            continue
         if mtype == MISSION_FRAME_USER and not innocent_criminal_records:
             continue
         if mtype == MISSION_TRACE_USER and not (academic_records or criminal_records):
@@ -147,6 +161,8 @@ def generate_missions(game_session_id, count=None):
             mission = _generate_change_academic_mission(gs, academic_comp, academic_records)
         elif mtype == MISSION_CHANGE_CRIMINAL:
             mission = _generate_change_criminal_mission(gs, criminal_comp, criminal_records)
+        elif mtype == MISSION_CHANGE_SOCIAL:
+            mission = _generate_change_social_mission(gs, ss_comp, ss_records)
         elif mtype == MISSION_FRAME_USER:
             mission = _generate_frame_user_mission(gs, criminal_comp, innocent_criminal_records)
         elif mtype == MISSION_TRACE_USER:
@@ -402,6 +418,59 @@ def _generate_change_criminal_mission(gs, criminal_comp, records):
     )
 
 
+def _generate_change_social_mission(gs, ss_comp, records):
+    """Generate a CHANGE_SOCIAL mission."""
+    rec = random.choice(records)
+    content = rec.content
+    current_status = content.get("status", "Active")
+
+    # Pick a new status different from current
+    new_status = random.choice([s for s in SS_STATUSES if s != current_status])
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_CHANGE_SOCIAL]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    person_name = content.get("name", "Unknown")
+    employer = random.choice(COMPANY_NAMES)
+    description = f"Change social security record for {person_name}"
+    details = (
+        f"Change {person_name}'s SS status to '{new_status}' "
+        f"on the Social Security Database."
+    )
+    full_details = (
+        f"Target: Social Security Database\n"
+        f"IP: {IP_SOCIAL_SECURITY}\n"
+        f"Person: {person_name}\n"
+        f"File: {rec.filename}\n\n"
+        f"Change the 'status' field to '{new_status}' in the record for {person_name}.\n"
+        f"You will need to hack the Social Security Database, locate the record,\n"
+        f"and use 'edit {rec.filename} status {new_status}' to modify it.\n\n"
+        f"Once the record is changed, reply to the mission email to confirm."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_CHANGE_SOCIAL,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=IP_SOCIAL_SECURITY,
+        target_filename=rec.filename,
+        target_data={
+            "person_name": person_name,
+            "field": "status",
+            "required_value": new_status,
+        },
+        payment=payment,
+        difficulty=3,
+        min_rating=5,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
 def _generate_frame_user_mission(gs, criminal_comp, innocent_records):
     """Generate a FRAME_USER mission — plant a conviction on an innocent NPC."""
     rec = random.choice(innocent_records)
@@ -647,6 +716,8 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_change_academic(gs, mission)
     elif mission.mission_type == MISSION_CHANGE_CRIMINAL:
         ok, msg = _check_change_criminal(gs, mission)
+    elif mission.mission_type == MISSION_CHANGE_SOCIAL:
+        ok, msg = _check_change_social(gs, mission)
     elif mission.mission_type == MISSION_LAN_FILE:
         ok, msg = _check_lan_file(gs, mission)
     elif mission.mission_type == MISSION_LAN_DESTROY:
@@ -712,6 +783,23 @@ def check_mission_completion(game_session_id, mission_id):
         "Uplink Corporation",
         gs.game_time_ticks,
     )
+
+    # Change Social: identity fraud news article
+    if mission.mission_type == MISSION_CHANGE_SOCIAL:
+        person_name = mission.target_data.get("person_name", "Unknown")
+        generate_news_article(
+            game_session_id,
+            f"Identity fraud detected — {person_name}'s SS status altered",
+            (
+                f"Federal authorities have detected unauthorized modifications\n"
+                f"to the Social Security record of {person_name}.\n"
+                f"An investigation is underway to determine the source of\n"
+                f"the breach. The Social Security Database has been flagged\n"
+                f"for additional security review."
+            ),
+            "Federal Investigation Bureau",
+            gs.game_time_ticks,
+        )
 
     # Frame User: special arrest news article
     if mission.mission_type == MISSION_FRAME_USER:
@@ -891,6 +979,35 @@ def _check_change_criminal(gs, mission):
     data = mission.target_data
     required_value = data.get("required_value")
     field = data.get("field", "convictions")
+
+    target_comp = Computer.query.filter_by(
+        game_session_id=gs.id, ip=mission.target_ip
+    ).first()
+    if not target_comp:
+        return False, "Target computer not found."
+
+    rec = DataFile.query.filter_by(
+        computer_id=target_comp.id, filename=mission.target_filename
+    ).first()
+    if not rec:
+        return False, f"Record '{mission.target_filename}' not found."
+
+    content = rec.content
+    current_value = content.get(field)
+    if current_value != required_value:
+        return False, (
+            f"Record field '{field}' is '{current_value}', needs to be '{required_value}'. "
+            f"Use 'edit {mission.target_filename} {field} {required_value}' on the target system."
+        )
+
+    return True, "Record updated correctly."
+
+
+def _check_change_social(gs, mission):
+    """Verify the social security record was changed correctly."""
+    data = mission.target_data
+    required_value = data.get("required_value")
+    field = data.get("field", "status")
 
     target_comp = Computer.query.filter_by(
         game_session_id=gs.id, ip=mission.target_ip

@@ -256,6 +256,108 @@ def generate_world(game_session_id):
     _create_gov_system(gsid, IP_ACADEMIC_DB, "International Academic Database",
                        "Government", TRACE_SLOW, ACTION_DISCONNECT)
 
+    # --- ARC Technologies ---
+    _add_location(gsid, IP_ARC, x=150, y=400)
+    arc_comp = Computer(
+        game_session_id=gsid,
+        name="ARC Technologies Internal Services",
+        company_name="ARC Technologies",
+        ip=IP_ARC,
+        computer_type=COMP_INTERNAL,
+        trace_speed=TRACE_FAST,
+        trace_action=ACTION_DISCONNECT_FINE_ARREST,
+        is_externally_open=True,
+        admin_password=random.choice(PASSWORD_POOL),
+    )
+    db.session.add(arc_comp)
+    db.session.flush()
+
+    _add_screen(arc_comp.id, 0, SCREEN_PASSWORD,
+                title="ARC Technologies ISM",
+                subtitle="Authentication Required",
+                password=arc_comp.admin_password,
+                next_screen=1)
+    _add_screen(arc_comp.id, 1, SCREEN_MENU,
+                title="ARC Technologies ISM",
+                subtitle="Internal Services",
+                content={"options": [
+                    {"label": "File Server", "screen": 2},
+                    {"label": "System Logs", "screen": 3},
+                ]})
+    _add_screen(arc_comp.id, 2, SCREEN_FILESERVER,
+                title="ARC Technologies ISM",
+                subtitle="File Server")
+    _add_screen(arc_comp.id, 3, SCREEN_LOGSCREEN,
+                title="ARC Technologies ISM",
+                subtitle="Access Logs")
+
+    db.session.add(SecuritySystem(computer_id=arc_comp.id, security_type=SEC_MONITOR, level=4))
+    db.session.add(SecuritySystem(computer_id=arc_comp.id, security_type=SEC_PROXY, level=3))
+    db.session.add(SecuritySystem(computer_id=arc_comp.id, security_type=SEC_FIREWALL, level=3))
+
+    for fname in ["revelation_spec.dat", "project_overview.dat", "test_results.dat"]:
+        db.session.add(DataFile(
+            computer_id=arc_comp.id, filename=fname,
+            size=random.randint(3, 8), file_type="CLASSIFIED",
+            encrypted=True,
+        ))
+
+    db.session.add(Company(
+        game_session_id=gsid, name="ARC Technologies",
+        company_type=TYPE_COMMERCIAL, size=10, growth=3, alignment=-3,
+    ))
+
+    # --- Arunmor Corporation ---
+    _add_location(gsid, IP_ARUNMOR, x=600, y=400)
+    arun_comp = Computer(
+        game_session_id=gsid,
+        name="Arunmor Corporation Internal Services",
+        company_name="Arunmor Corporation",
+        ip=IP_ARUNMOR,
+        computer_type=COMP_INTERNAL,
+        trace_speed=TRACE_MEDIUM,
+        trace_action=ACTION_DISCONNECT_FINE,
+        is_externally_open=True,
+        admin_password=random.choice(PASSWORD_POOL),
+    )
+    db.session.add(arun_comp)
+    db.session.flush()
+
+    _add_screen(arun_comp.id, 0, SCREEN_PASSWORD,
+                title="Arunmor Corporation ISM",
+                subtitle="Authentication Required",
+                password=arun_comp.admin_password,
+                next_screen=1)
+    _add_screen(arun_comp.id, 1, SCREEN_MENU,
+                title="Arunmor Corporation ISM",
+                subtitle="Internal Services",
+                content={"options": [
+                    {"label": "File Server", "screen": 2},
+                    {"label": "System Logs", "screen": 3},
+                ]})
+    _add_screen(arun_comp.id, 2, SCREEN_FILESERVER,
+                title="Arunmor Corporation ISM",
+                subtitle="File Server")
+    _add_screen(arun_comp.id, 3, SCREEN_LOGSCREEN,
+                title="Arunmor Corporation ISM",
+                subtitle="Access Logs")
+
+    db.session.add(SecuritySystem(computer_id=arun_comp.id, security_type=SEC_MONITOR, level=3))
+    db.session.add(SecuritySystem(computer_id=arun_comp.id, security_type=SEC_PROXY, level=2))
+    db.session.add(SecuritySystem(computer_id=arun_comp.id, security_type=SEC_FIREWALL, level=2))
+
+    for fname in ["faith_research.dat", "virus_analysis.dat", "countermeasure_spec.dat"]:
+        db.session.add(DataFile(
+            computer_id=arun_comp.id, filename=fname,
+            size=random.randint(2, 6), file_type="CLASSIFIED",
+            encrypted=True,
+        ))
+
+    db.session.add(Company(
+        game_session_id=gsid, name="Arunmor Corporation",
+        company_type=TYPE_COMMERCIAL, size=8, growth=2, alignment=3,
+    ))
+
     # --- Person Records on Government Systems ---
     academic_comp = Computer.query.filter_by(game_session_id=gsid, ip=IP_ACADEMIC_DB).first()
     if academic_comp:
@@ -295,6 +397,27 @@ def generate_world(game_session_id):
             rec.content = {
                 "name": npc_name,
                 "convictions": conviction,
+            }
+            db.session.add(rec)
+
+    ss_comp = Computer.query.filter_by(game_session_id=gsid, ip=IP_SOCIAL_SECURITY).first()
+    if ss_comp:
+        npc_sample = random.sample(NPC_NAMES, min(10, len(NPC_NAMES)))
+        for npc_name in npc_sample:
+            ssn = f"{random.randint(100, 999)}-{random.randint(10, 99)}-{random.randint(1000, 9999)}"
+            status = random.choice(SS_STATUSES)
+            address = random.choice(SS_ADDRESSES)
+            rec = DataFile(
+                computer_id=ss_comp.id,
+                filename=f"{npc_name.lower().replace(' ', '_')}.rec",
+                size=1,
+                file_type="SOCIAL_SECURITY_RECORD",
+            )
+            rec.content = {
+                "name": npc_name,
+                "ssn": ssn,
+                "status": status,
+                "address": address,
             }
             db.session.add(rec)
 
@@ -392,6 +515,12 @@ def generate_world(game_session_id):
     ))
     db.session.add(PlayerLink(
         game_session_id=gsid, ip=IP_NEWS_NETWORK, label="Uplink News Network",
+    ))
+    db.session.add(PlayerLink(
+        game_session_id=gsid, ip=IP_ARC, label="ARC Technologies",
+    ))
+    db.session.add(PlayerLink(
+        game_session_id=gsid, ip=IP_ARUNMOR, label="Arunmor Corporation",
     ))
 
     # --- Connection object ---

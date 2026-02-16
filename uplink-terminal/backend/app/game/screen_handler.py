@@ -150,7 +150,7 @@ def _handle_fileserver(text, computer, screen, session):
         f = DataFile.query.filter_by(computer_id=computer.id, filename=fname).first()
         if not f:
             return error(f"File '{fname}' not found.")
-        if f.file_type not in ("ACADEMIC_RECORD", "CRIMINAL_RECORD"):
+        if f.file_type not in ("ACADEMIC_RECORD", "CRIMINAL_RECORD", "SOCIAL_SECURITY_RECORD"):
             return error(f"'{fname}' is not a record file. Use file_copier instead.")
         content = f.content
         lines = [
@@ -176,7 +176,7 @@ def _handle_fileserver(text, computer, screen, session):
         f = DataFile.query.filter_by(computer_id=computer.id, filename=fname).first()
         if not f:
             return error(f"File '{fname}' not found.")
-        if f.file_type not in ("ACADEMIC_RECORD", "CRIMINAL_RECORD"):
+        if f.file_type not in ("ACADEMIC_RECORD", "CRIMINAL_RECORD", "SOCIAL_SECURITY_RECORD"):
             return error(f"'{fname}' is not a record file.")
         content = f.content
         if field not in content:

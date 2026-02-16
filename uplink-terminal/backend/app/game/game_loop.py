@@ -218,6 +218,25 @@ def _push_tool_events(ts, events):
             elif rt.tool_type == "LOG_MODIFIER":
                 count = rt.result.get("logs_modified", 0) if rt.result else 0
                 msg = success(f"{tool_name} complete — {count} log(s) modified to look innocent.")
+            elif rt.tool_type == "DICTIONARY_HACKER":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                elif rt.result and rt.result.get("failed"):
+                    reason = rt.result.get("reason", "password too strong for dictionary attack")
+                    msg = warning(f"{tool_name} failed — {reason}")
+                else:
+                    pwd = rt.result.get("password", "???") if rt.result else "???"
+                    msg = success(f"{tool_name} complete — password cracked: '{pwd}'. Access granted.")
+                    # Re-render current screen on success (same as PASSWORD_BREAKER)
+                    if ts.is_connected:
+                        comp = Computer.query.filter_by(
+                            game_session_id=ts.game_session_id,
+                            ip=ts.current_computer_ip,
+                        ).first()
+                        if comp:
+                            screen = comp.get_screen(ts.current_screen_index)
+                            if screen:
+                                msg += "\n" + render_screen(comp, screen, ts)
             else:
                 msg = success(f"{tool_name} complete.")
 

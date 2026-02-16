@@ -345,6 +345,14 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
         # Flat ticks
         raw = base
 
+    elif tool_type == TOOL_DICTIONARY_HACKER:
+        # Ticks per password character (faster than PASSWORD_BREAKER)
+        comp = Computer.query.filter_by(
+            game_session_id=gsid, ip=target_ip
+        ).first()
+        pwd_len = len(comp.admin_password) if comp and comp.admin_password else 6
+        raw = base * pwd_len
+
     else:
         raw = base
 
@@ -392,6 +400,8 @@ def _execute_tool_effect(rt, ts=None):
         _effect_ip_probe(rt)
     elif rt.tool_type == TOOL_LOG_MODIFIER:
         _effect_log_modifier(rt)
+    elif rt.tool_type == TOOL_DICTIONARY_HACKER:
+        _effect_dictionary_hacker(rt, ts)
 
 
 def _effect_password_breaker(rt, ts=None):
@@ -730,3 +740,50 @@ def _effect_log_modifier(rt):
         count += 1
 
     rt.result = {"logs_modified": count, "on_ip": rt.target_ip}
+
+
+def _effect_dictionary_hacker(rt, ts=None):
+    """Crack the password using a dictionary attack — only works on weak passwords."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp:
+        return
+
+    gs = db.session.get(GameSession, rt.game_session_id)
+
+    # Proxy blocks dictionary hacker (same as Password Breaker)
+    if _is_security_active(comp.id, SEC_PROXY):
+        rt.result = {"error": "Proxy detected anomalous login attempt."}
+        return
+
+    # Dictionary Hacker only cracks weak passwords from PASSWORD_POOL
+    password = comp.admin_password or ""
+    if password not in PASSWORD_POOL:
+        rt.result = {"failed": True, "reason": "password too strong for dictionary attack"}
+        return
+
+    # Success — crack the password
+    rt.result = {"password": password}
+
+    # Mark authenticated on the terminal session
+    if ts:
+        ts.authenticated_on_computer = True
+        pw_screen = None
+        for s in comp.screens:
+            if s.screen_type == SCREEN_PASSWORD:
+                pw_screen = s
+                break
+        if pw_screen and pw_screen.next_screen is not None:
+            ts.current_screen_index = pw_screen.next_screen
+
+    # Add suspicious access log
+    if gs:
+        db.session.add(AccessLog(
+            computer_id=comp.id,
+            game_tick=gs.game_time_ticks,
+            from_ip=gs.gateway_ip or "unknown",
+            from_name="agent",
+            action="Logged in (dictionary hacker)",
+            suspicious=True,
+        ))

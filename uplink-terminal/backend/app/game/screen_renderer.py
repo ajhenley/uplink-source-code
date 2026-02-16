@@ -98,7 +98,7 @@ def _render_fileserver(computer, screen, session):
                 flags += " [ENC]"
             if f.compressed:
                 flags += " [CMP]"
-            if f.file_type in ("ACADEMIC_RECORD", "CRIMINAL_RECORD"):
+            if f.file_type in ("ACADEMIC_RECORD", "CRIMINAL_RECORD", "SOCIAL_SECURITY_RECORD"):
                 flags += " [REC]"
                 has_records = True
             lines.append(

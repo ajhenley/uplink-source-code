@@ -536,7 +536,7 @@ def cmd_run(args, session):
                       "file_deleter <file>, log_deleter,\n"
                       "         log_modifier, proxy_disable, firewall_disable, "
                       "monitor_bypass, decrypter <file>,\n"
-                      "         bypasser, ip_probe")
+                      "         bypasser, ip_probe, dictionary_hacker")
 
     tool_name = args[0].lower()
     tool_type = TOOL_ALIASES.get(tool_name)

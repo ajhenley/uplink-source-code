@@ -113,6 +113,7 @@ MISSION_LAN_DESTROY = "LAN_DESTROY"
 MISSION_FRAME_USER = "FRAME_USER"
 MISSION_TRACE_USER = "TRACE_USER"
 MISSION_REMOVE_COMPUTER = "REMOVE_COMPUTER"
+MISSION_CHANGE_SOCIAL = "CHANGE_SOCIAL"
 
 # Mission statuses
 MISSION_AVAILABLE = "AVAILABLE"
@@ -134,6 +135,7 @@ TOOL_DECRYPTER = "DECRYPTER"
 TOOL_BYPASSER = "BYPASSER"
 TOOL_IP_PROBE = "IP_PROBE"
 TOOL_LOG_MODIFIER = "LOG_MODIFIER"
+TOOL_DICTIONARY_HACKER = "DICTIONARY_HACKER"
 
 # Version speed scaling
 VERSION_SPEED_STEP = 0.5
@@ -153,6 +155,7 @@ TOOL_TICKS = {
     "BYPASSER": 40,           # ticks per security level (before 1.5x penalty)
     "IP_PROBE": 80,           # flat ticks
     "LOG_MODIFIER": 40,       # flat ticks (faster than LOG_DELETER)
+    "DICTIONARY_HACKER": 25,  # per-character (faster than PASSWORD_BREAKER's 45)
 }
 
 # Tool statuses
@@ -236,6 +239,12 @@ SOFTWARE_CATALOG = [
     ("Log Modifier", "LOG_MODIFIER", "3.0", 2, 2100),
     ("Log Modifier", "LOG_MODIFIER", "4.0", 3, 3000),
     ("Log Modifier", "LOG_MODIFIER", "5.0", 3, 4800),
+    # Dictionary Hacker — cheap password cracker, only works on weak passwords (base: 1 GQ, 500c)
+    ("Dictionary Hacker", "DICTIONARY_HACKER", "1.0", 1, 500),
+    ("Dictionary Hacker", "DICTIONARY_HACKER", "2.0", 1, 1000),
+    ("Dictionary Hacker", "DICTIONARY_HACKER", "3.0", 2, 1800),
+    ("Dictionary Hacker", "DICTIONARY_HACKER", "4.0", 2, 2500),
+    ("Dictionary Hacker", "DICTIONARY_HACKER", "5.0", 3, 3600),
 ]
 
 # Mission payments (base, variance fraction)
@@ -253,6 +262,7 @@ MISSION_PAYMENTS = {
     "FRAME_USER": (3500, 0.3),
     "TRACE_USER": (2000, 0.3),
     "REMOVE_COMPUTER": (5000, 0.3),
+    "CHANGE_SOCIAL": (2500, 0.3),
 }
 
 # Uplink rating names
@@ -277,6 +287,7 @@ RATING_GAIN = {
     "FRAME_USER": 7,
     "TRACE_USER": 5,
     "REMOVE_COMPUTER": 10,
+    "CHANGE_SOCIAL": 5,
 }
 
 # Tool name aliases (user-facing name → tool type)
@@ -293,6 +304,7 @@ TOOL_ALIASES = {
     "bypasser": "BYPASSER",
     "ip_probe": "IP_PROBE",
     "log_modifier": "LOG_MODIFIER",
+    "dictionary_hacker": "DICTIONARY_HACKER",
 }
 
 
@@ -395,6 +407,20 @@ ACADEMIC_CLASSES = ["1st", "2:1", "2:2", "3rd", "None"]
 CRIMINAL_CONVICTIONS = [
     "Robbery", "High tech fraud", "Tax evasion",
     "Embezzlement", "Forgery", "None",
+]
+
+SS_STATUSES = ["Active", "Suspended", "Deceased", "Revoked", "Flagged"]
+SS_ADDRESSES = [
+    "42 Oak Lane, Boston",
+    "118 Pine St, Chicago",
+    "7 Maple Ave, Denver",
+    "305 Elm Rd, Seattle",
+    "91 Cedar Blvd, Miami",
+    "200 Birch Dr, Portland",
+    "55 Spruce Ct, Atlanta",
+    "163 Walnut Way, Dallas",
+    "22 Ash Pl, Phoenix",
+    "480 Willow Ln, New York",
 ]
 
 
