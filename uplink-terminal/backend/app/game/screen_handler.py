@@ -29,6 +29,7 @@ def handle_screen_input(text, session):
     handlers = {
         SCREEN_MESSAGE: _handle_message,
         SCREEN_PASSWORD: _handle_password,
+        SCREEN_VOICEPRINT: _handle_voiceprint,
         SCREEN_MENU: _handle_menu,
         SCREEN_FILESERVER: _handle_fileserver,
         SCREEN_LOGSCREEN: _handle_logscreen,
@@ -105,6 +106,79 @@ def _handle_password(text, computer, screen, session):
         return success("Access granted.")
     else:
         return error("Access denied — incorrect password.")
+
+
+def _handle_voiceprint(text, computer, screen, session):
+    """VOICEPRINT: 'use <filename>' presents a voiceprint from gateway."""
+    parts = text.strip().split(None, 1)
+    cmd = parts[0].lower() if parts else ""
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    if cmd == "dc":
+        return None  # let main dispatcher handle dc
+
+    if cmd == "back":
+        return _navigate_to(session, computer, 0)
+
+    if cmd == "use":
+        if not arg:
+            return error("Usage: use <filename>")
+
+        voiceprint_target = screen.content.get("voiceprint_target", "")
+        if not voiceprint_target:
+            return error("No voiceprint target configured for this screen.")
+
+        # Find player's gateway
+        gsid = session.game_session_id
+        gs = db.session.get(GameSession, gsid)
+        if not gs:
+            return error("No active game session.")
+
+        gw = Computer.query.filter_by(
+            game_session_id=gsid, ip=gs.gateway_ip
+        ).first()
+        if not gw:
+            return error("Gateway not found.")
+
+        # Search for the voiceprint file on gateway
+        vp_file = DataFile.query.filter_by(
+            computer_id=gw.id, filename=arg
+        ).first()
+        if not vp_file:
+            return error(f"File '{arg}' not found on gateway.")
+
+        if vp_file.file_type != "VOICEPRINT":
+            return error(f"'{arg}' is not a voiceprint file.")
+
+        # Verify the voiceprint matches the target
+        vp_name = vp_file.content.get("name", "") if vp_file.content else ""
+        if vp_name.lower() != voiceprint_target.lower():
+            return error("Voiceprint does not match.")
+
+        # Success — navigate to next screen
+        # Create non-suspicious access log
+        if gs:
+            log = AccessLog(
+                computer_id=computer.id,
+                game_tick=gs.game_time_ticks,
+                from_ip=gs.gateway_ip or "unknown",
+                from_name=session.username or "unknown",
+                action="Voice authenticated",
+            )
+            db.session.add(log)
+            db.session.commit()
+
+        if screen.next_screen is not None:
+            return success("Voice authentication accepted.") + "\n" + _navigate_to(session, computer, screen.next_screen)
+        return success("Voice authentication accepted.")
+
+    # Help text for unrecognized input
+    target_name = screen.content.get("voiceprint_target", "unknown")
+    return info(
+        f"Voice authentication required for: {target_name}\n"
+        f"  Use 'use <filename>' to present a voiceprint from your gateway.\n"
+        f"  Type 'dc' to disconnect, 'back' to go back."
+    )
 
 
 def _handle_menu(text, computer, screen, session):

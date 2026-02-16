@@ -85,6 +85,10 @@ def tick():
         if gs.game_time_ticks % ADMIN_REVIEW_INTERVAL < gs.speed_multiplier:
             _admin_review(gs, ts)
 
+        # --- Regenerate deleted system_core.sys files (every ~500 ticks) ---
+        if gs.game_time_ticks % 500 < gs.speed_multiplier:
+            _regenerate_system_cores(gs)
+
         # --- SysAdmin tick (LAN) ---
         if ts.is_in_lan and ts.sysadmin_state > 0:
             from .constants import SYSADMIN_TICK_INTERVAL
@@ -237,6 +241,12 @@ def _push_tool_events(ts, events):
                             screen = comp.get_screen(ts.current_screen_index)
                             if screen:
                                 msg += "\n" + render_screen(comp, screen, ts)
+            elif rt.tool_type == "VOICE_ANALYSER":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    vp_name = rt.result.get("name", "unknown") if rt.result else "unknown"
+                    msg = success(f"{tool_name} complete — voiceprint for '{vp_name}' recorded to gateway.")
             else:
                 msg = success(f"{tool_name} complete.")
 
@@ -860,3 +870,28 @@ def _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes):
 
     socketio.emit("output", {"text": banner + lan_view}, to=sid)
     socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+
+
+def _regenerate_system_cores(gs):
+    """Regenerate deleted system_core.sys files on ISMs (companies restore their servers)."""
+    from ..models import Computer, DataFile
+    from .constants import COMP_INTERNAL
+
+    isms = Computer.query.filter_by(
+        game_session_id=gs.id, computer_type=COMP_INTERNAL,
+    ).filter(
+        Computer.company_name.notin_(["Player", "Uplink Corporation",
+                                       "ARC Technologies", "Arunmor Corporation"]),
+    ).all()
+
+    for ism in isms:
+        core = DataFile.query.filter_by(
+            computer_id=ism.id, filename="system_core.sys"
+        ).first()
+        if not core:
+            db.session.add(DataFile(
+                computer_id=ism.id,
+                filename="system_core.sys",
+                size=1,
+                file_type="SYSTEM",
+            ))

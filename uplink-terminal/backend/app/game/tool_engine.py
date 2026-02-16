@@ -88,6 +88,9 @@ def start_tool(session, tool_type, target_ip, target_param=None):
             if not has_target:
                 return False, "No active security to bypass on this system."
     # TOOL_IP_PROBE has no special prerequisites
+    elif tool_type == TOOL_VOICE_ANALYSER:
+        if not target_param:
+            return False, "Usage: run voice_analyser <filename>"
 
     # FILE_COPIER: auto-detect upload vs download
     if tool_type == TOOL_FILE_COPIER and target_param and comp:
@@ -353,6 +356,9 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
         pwd_len = len(comp.admin_password) if comp and comp.admin_password else 6
         raw = base * pwd_len
 
+    elif tool_type == TOOL_VOICE_ANALYSER:
+        raw = base  # flat 50 ticks, scaled by version/CPU
+
     else:
         raw = base
 
@@ -402,6 +408,8 @@ def _execute_tool_effect(rt, ts=None):
         _effect_log_modifier(rt)
     elif rt.tool_type == TOOL_DICTIONARY_HACKER:
         _effect_dictionary_hacker(rt, ts)
+    elif rt.tool_type == TOOL_VOICE_ANALYSER:
+        _effect_voice_analyser(rt)
 
 
 def _effect_password_breaker(rt, ts=None):
@@ -787,3 +795,68 @@ def _effect_dictionary_hacker(rt, ts=None):
             action="Logged in (dictionary hacker)",
             suspicious=True,
         ))
+
+
+def _effect_voice_analyser(rt):
+    """Record a voiceprint from the target computer and copy it to the gateway."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp:
+        return
+
+    gs = db.session.get(GameSession, rt.game_session_id)
+    if not gs:
+        return
+
+    # Proxy blocks voice analyser (same as password tools)
+    if _is_security_active(comp.id, SEC_PROXY):
+        rt.result = {"error": "Proxy blocked voice analysis."}
+        return
+
+    # Find the voiceprint file on the target matching target_param
+    if not rt.target_param:
+        rt.result = {"error": "No voiceprint file specified."}
+        return
+
+    vp_file = DataFile.query.filter_by(
+        computer_id=comp.id, filename=rt.target_param, file_type="VOICEPRINT"
+    ).first()
+    if not vp_file:
+        rt.result = {"error": "No voiceprint file found."}
+        return
+
+    # Find player's gateway
+    gw = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=gs.gateway_ip
+    ).first()
+    if not gw:
+        rt.result = {"error": "Gateway not found."}
+        return
+
+    # Check if file already exists on gateway
+    existing = DataFile.query.filter_by(
+        computer_id=gw.id, filename=rt.target_param
+    ).first()
+    if not existing:
+        new_file = DataFile(
+            computer_id=gw.id,
+            filename=rt.target_param,
+            size=1,
+            file_type="VOICEPRINT",
+        )
+        new_file.content = vp_file.content
+        db.session.add(new_file)
+
+    vp_name = vp_file.content.get("name", "unknown") if vp_file.content else "unknown"
+    rt.result = {"voiceprint": rt.target_param, "name": vp_name}
+
+    # Add suspicious access log
+    db.session.add(AccessLog(
+        computer_id=comp.id,
+        game_tick=gs.game_time_ticks,
+        from_ip=gs.gateway_ip or "unknown",
+        from_name="agent",
+        action=f"Voice analysed: {rt.target_param}",
+        suspicious=True,
+    ))

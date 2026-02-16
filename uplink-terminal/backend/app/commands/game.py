@@ -536,7 +536,8 @@ def cmd_run(args, session):
                       "file_deleter <file>, log_deleter,\n"
                       "         log_modifier, proxy_disable, firewall_disable, "
                       "monitor_bypass, decrypter <file>,\n"
-                      "         bypasser, ip_probe, dictionary_hacker")
+                      "         bypasser, ip_probe, dictionary_hacker, "
+                      "voice_analyser <file>")
 
     tool_name = args[0].lower()
     tool_type = TOOL_ALIASES.get(tool_name)
@@ -548,8 +549,8 @@ def cmd_run(args, session):
 
     target_param = args[1] if len(args) > 1 else None
 
-    # FILE_COPIER and FILE_DELETER require a filename
-    if tool_type in (TOOL_FILE_COPIER, TOOL_FILE_DELETER) and not target_param:
+    # FILE_COPIER, FILE_DELETER, and VOICE_ANALYSER require a filename
+    if tool_type in (TOOL_FILE_COPIER, TOOL_FILE_DELETER, TOOL_VOICE_ANALYSER) and not target_param:
         return error(f"Usage: run {tool_name} <filename>")
 
     from ..game.tool_engine import start_tool

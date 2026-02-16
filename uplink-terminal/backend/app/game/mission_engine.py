@@ -105,6 +105,18 @@ def generate_missions(game_session_id, count=None):
     if viable_targets and gs.uplink_rating >= 10:
         mission_types.append(MISSION_REMOVE_COMPUTER)
 
+    # Denial of Service missions (need ISMs with system_core.sys)
+    isms_with_core = []
+    if gs.uplink_rating >= 7:
+        for ism in isms:
+            core_file = DataFile.query.filter_by(
+                computer_id=ism.id, filename="system_core.sys"
+            ).first()
+            if core_file:
+                isms_with_core.append(ism)
+    if isms_with_core:
+        mission_types.append(MISSION_DENIAL_OF_SERVICE)
+
     # LAN file missions (need ISMs with LAN file/mainframe nodes containing files)
     viable_lan_targets = []
     if gs.uplink_rating >= 8:
@@ -150,6 +162,8 @@ def generate_missions(game_session_id, count=None):
             continue
         if mtype == MISSION_REMOVE_COMPUTER and not viable_targets:
             continue
+        if mtype == MISSION_DENIAL_OF_SERVICE and not isms_with_core:
+            continue
 
         if mtype == MISSION_LAN_DESTROY:
             mission = _generate_lan_destroy_mission(gs, viable_lan_targets)
@@ -169,6 +183,8 @@ def generate_missions(game_session_id, count=None):
             mission = _generate_trace_user_mission(gs, academic_comp, academic_records, criminal_comp, criminal_records)
         elif mtype == MISSION_REMOVE_COMPUTER:
             mission = _generate_remove_computer_mission(gs, viable_targets)
+        elif mtype == MISSION_DENIAL_OF_SERVICE:
+            mission = _generate_denial_of_service_mission(gs, isms_with_core)
         else:
             mission = _generate_file_mission(gs, mtype, viable_targets)
 
@@ -629,6 +645,70 @@ def _generate_remove_computer_mission(gs, viable_targets):
     )
 
 
+def _generate_denial_of_service_mission(gs, isms_with_core):
+    """Generate a DENIAL_OF_SERVICE mission — delete system_core.sys from a company ISM."""
+    target_comp = random.choice(isms_with_core)
+
+    base_pay, variance = MISSION_PAYMENTS[MISSION_DENIAL_OF_SERVICE]
+    payment = int(base_pay * (1 + random.uniform(-variance, variance)))
+
+    employer = random.choice(COMPANY_NAMES)
+    description = f"Disable {target_comp.company_name}'s server"
+    details = (
+        f"Delete the system core file from the {target_comp.company_name} "
+        f"Internal Services Machine to take their server offline."
+    )
+    full_details = (
+        f"Target: {target_comp.name}\n"
+        f"IP: {target_comp.ip}\n"
+        f"File: system_core.sys\n\n"
+        f"A client wants {target_comp.company_name}'s server taken offline.\n"
+        f"Delete the system core file on their Internal Services Machine.\n"
+        f"You will need to bypass the login, locate the file server,\n"
+        f"and use a File Deleter to remove 'system_core.sys'.\n\n"
+        f"Once the file is destroyed, reply to the mission email to confirm."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_DENIAL_OF_SERVICE,
+        employer=employer,
+        contact=f"internal@{employer.lower().replace(' ', '')}.co.uk",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip=target_comp.ip,
+        target_filename="system_core.sys",
+        target_data={
+            "computer_name": target_comp.name,
+        },
+        payment=payment,
+        difficulty=4,
+        min_rating=7,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _check_denial_of_service(gs, mission):
+    """Verify system_core.sys no longer exists on the target ISM."""
+    target_comp = Computer.query.filter_by(
+        game_session_id=gs.id, ip=mission.target_ip
+    ).first()
+    if not target_comp:
+        return False, "Target computer not found."
+
+    still_exists = DataFile.query.filter_by(
+        computer_id=target_comp.id, filename="system_core.sys"
+    ).first()
+    if still_exists:
+        return False, (
+            f"'system_core.sys' still exists on {mission.target_ip}. "
+            f"Use File Deleter to remove it."
+        )
+    return True, "System core destroyed — server offline."
+
+
 def accept_mission(game_session_id, mission_id):
     """Accept a mission from the BBS.
 
@@ -728,6 +808,8 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_steal_file(gs, mission)
     elif mission.mission_type == MISSION_REMOVE_COMPUTER:
         ok, msg = _check_remove_computer(gs, mission)
+    elif mission.mission_type == MISSION_DENIAL_OF_SERVICE:
+        ok, msg = _check_denial_of_service(gs, mission)
     elif mission.mission_type == MISSION_PLOT_STEAL:
         ok, msg = _check_steal_file(gs, mission)
     elif mission.mission_type == MISSION_PLOT_DESTROY:
@@ -798,6 +880,25 @@ def check_mission_completion(game_session_id, mission_id):
                 f"for additional security review."
             ),
             "Federal Investigation Bureau",
+            gs.game_time_ticks,
+        )
+
+    # Denial of Service: server offline news article
+    if mission.mission_type == MISSION_DENIAL_OF_SERVICE:
+        target_comp = Computer.query.filter_by(
+            game_session_id=gs.id, ip=mission.target_ip
+        ).first()
+        company_name = target_comp.company_name if target_comp else "Unknown"
+        generate_news_article(
+            game_session_id,
+            f"{company_name} servers knocked offline in cyber attack",
+            (
+                f"{company_name}'s internal servers were taken offline today\n"
+                f"following a coordinated cyber attack. The company's system\n"
+                f"core was deleted, rendering their Internal Services Machine\n"
+                f"inoperable. Engineers are working to restore services."
+            ),
+            "Uplink News Network",
             gs.game_time_ticks,
         )
 

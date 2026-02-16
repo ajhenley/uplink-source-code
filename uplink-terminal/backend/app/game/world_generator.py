@@ -248,9 +248,16 @@ def generate_world(game_session_id):
     }
     db.session.add(seed_article)
 
+    # --- Voice auth admins (3 distinct NPCs for Criminal DB, ARC, Arunmor) ---
+    voice_admins = random.sample(NPC_NAMES, 3)
+    criminal_voice_admin = voice_admins[0]
+    arc_voice_admin = voice_admins[1]
+    arunmor_voice_admin = voice_admins[2]
+
     # --- Government Systems ---
     _create_gov_system(gsid, IP_CRIMINAL_DB, "Global Criminal Database",
-                       "Government", TRACE_FAST, ACTION_DISCONNECT_FINE_ARREST)
+                       "Government", TRACE_FAST, ACTION_DISCONNECT_FINE_ARREST,
+                       voice_auth=True, voice_admin=criminal_voice_admin)
     _create_gov_system(gsid, IP_SOCIAL_SECURITY, "Social Security Database",
                        "Government", TRACE_MEDIUM, ACTION_DISCONNECT_FINE)
     _create_gov_system(gsid, IP_ACADEMIC_DB, "International Academic Database",
@@ -277,17 +284,22 @@ def generate_world(game_session_id):
                 subtitle="Authentication Required",
                 password=arc_comp.admin_password,
                 next_screen=1)
-    _add_screen(arc_comp.id, 1, SCREEN_MENU,
+    _add_screen(arc_comp.id, 1, SCREEN_VOICEPRINT,
+                title="ARC Technologies ISM",
+                subtitle="Voice Authentication",
+                content={"voiceprint_target": arc_voice_admin},
+                next_screen=2)
+    _add_screen(arc_comp.id, 2, SCREEN_MENU,
                 title="ARC Technologies ISM",
                 subtitle="Internal Services",
                 content={"options": [
-                    {"label": "File Server", "screen": 2},
-                    {"label": "System Logs", "screen": 3},
+                    {"label": "File Server", "screen": 3},
+                    {"label": "System Logs", "screen": 4},
                 ]})
-    _add_screen(arc_comp.id, 2, SCREEN_FILESERVER,
+    _add_screen(arc_comp.id, 3, SCREEN_FILESERVER,
                 title="ARC Technologies ISM",
                 subtitle="File Server")
-    _add_screen(arc_comp.id, 3, SCREEN_LOGSCREEN,
+    _add_screen(arc_comp.id, 4, SCREEN_LOGSCREEN,
                 title="ARC Technologies ISM",
                 subtitle="Access Logs")
 
@@ -328,17 +340,22 @@ def generate_world(game_session_id):
                 subtitle="Authentication Required",
                 password=arun_comp.admin_password,
                 next_screen=1)
-    _add_screen(arun_comp.id, 1, SCREEN_MENU,
+    _add_screen(arun_comp.id, 1, SCREEN_VOICEPRINT,
+                title="Arunmor Corporation ISM",
+                subtitle="Voice Authentication",
+                content={"voiceprint_target": arunmor_voice_admin},
+                next_screen=2)
+    _add_screen(arun_comp.id, 2, SCREEN_MENU,
                 title="Arunmor Corporation ISM",
                 subtitle="Internal Services",
                 content={"options": [
-                    {"label": "File Server", "screen": 2},
-                    {"label": "System Logs", "screen": 3},
+                    {"label": "File Server", "screen": 3},
+                    {"label": "System Logs", "screen": 4},
                 ]})
-    _add_screen(arun_comp.id, 2, SCREEN_FILESERVER,
+    _add_screen(arun_comp.id, 3, SCREEN_FILESERVER,
                 title="Arunmor Corporation ISM",
                 subtitle="File Server")
-    _add_screen(arun_comp.id, 3, SCREEN_LOGSCREEN,
+    _add_screen(arun_comp.id, 4, SCREEN_LOGSCREEN,
                 title="Arunmor Corporation ISM",
                 subtitle="Access Logs")
 
@@ -503,6 +520,31 @@ def generate_world(game_session_id):
         has_lan = name in lan_company_names
         _create_company_computers(gsid, name, size, company_type=ctype, has_lan=has_lan)
 
+    # --- Place voiceprint files on company ISMs ---
+    # Each voice admin's voiceprint goes on a different company ISM
+    company_isms = Computer.query.filter_by(
+        game_session_id=gsid, computer_type=COMP_INTERNAL,
+    ).filter(
+        Computer.company_name.notin_(["Player", "Uplink Corporation",
+                                       "ARC Technologies", "Arunmor Corporation",
+                                       "Government"]),
+    ).all()
+    if len(company_isms) >= 3:
+        vp_isms = random.sample(company_isms, 3)
+    else:
+        vp_isms = company_isms[:3]  # use whatever is available
+
+    for i, admin_name in enumerate(voice_admins):
+        if i < len(vp_isms):
+            vp_file = DataFile(
+                computer_id=vp_isms[i].id,
+                filename=f"{admin_name.lower().replace(' ', '_')}_voice.vp",
+                size=1,
+                file_type="VOICEPRINT",
+            )
+            vp_file.content = {"name": admin_name}
+            db.session.add(vp_file)
+
     # --- Starting Links ---
     db.session.add(PlayerLink(
         game_session_id=gsid, ip=IP_UPLINK_PAS, label="Uplink Public Access Server",
@@ -580,7 +622,8 @@ def generate_world(game_session_id):
     return gw_ip
 
 
-def _create_gov_system(gsid, ip, name, company_name, trace_speed, trace_action):
+def _create_gov_system(gsid, ip, name, company_name, trace_speed, trace_action,
+                       voice_auth=False, voice_admin=None):
     """Create a government computer system."""
     _add_location(gsid, ip)
     comp = Computer(
@@ -597,19 +640,39 @@ def _create_gov_system(gsid, ip, name, company_name, trace_speed, trace_action):
     db.session.add(comp)
     db.session.flush()
 
-    _add_screen(comp.id, 0, SCREEN_PASSWORD,
-                title=name, subtitle="Authentication Required",
-                password=comp.admin_password, next_screen=1)
-    _add_screen(comp.id, 1, SCREEN_MENU,
-                title=name, subtitle="Main Menu",
-                content={"options": [
-                    {"label": "Records", "screen": 2},
-                    {"label": "Log Screen", "screen": 3},
-                ]})
-    _add_screen(comp.id, 2, SCREEN_FILESERVER,
-                title=name, subtitle="Records")
-    _add_screen(comp.id, 3, SCREEN_LOGSCREEN,
-                title=name, subtitle="Access Logs")
+    if voice_auth and voice_admin:
+        # Screen chain: 0=PASSWORD(→1), 1=VOICEPRINT(→2), 2=MENU, 3=FILESERVER, 4=LOGSCREEN
+        _add_screen(comp.id, 0, SCREEN_PASSWORD,
+                    title=name, subtitle="Authentication Required",
+                    password=comp.admin_password, next_screen=1)
+        _add_screen(comp.id, 1, SCREEN_VOICEPRINT,
+                    title=name, subtitle="Voice Authentication",
+                    content={"voiceprint_target": voice_admin},
+                    next_screen=2)
+        _add_screen(comp.id, 2, SCREEN_MENU,
+                    title=name, subtitle="Main Menu",
+                    content={"options": [
+                        {"label": "Records", "screen": 3},
+                        {"label": "Log Screen", "screen": 4},
+                    ]})
+        _add_screen(comp.id, 3, SCREEN_FILESERVER,
+                    title=name, subtitle="Records")
+        _add_screen(comp.id, 4, SCREEN_LOGSCREEN,
+                    title=name, subtitle="Access Logs")
+    else:
+        _add_screen(comp.id, 0, SCREEN_PASSWORD,
+                    title=name, subtitle="Authentication Required",
+                    password=comp.admin_password, next_screen=1)
+        _add_screen(comp.id, 1, SCREEN_MENU,
+                    title=name, subtitle="Main Menu",
+                    content={"options": [
+                        {"label": "Records", "screen": 2},
+                        {"label": "Log Screen", "screen": 3},
+                    ]})
+        _add_screen(comp.id, 2, SCREEN_FILESERVER,
+                    title=name, subtitle="Records")
+        _add_screen(comp.id, 3, SCREEN_LOGSCREEN,
+                    title=name, subtitle="Access Logs")
 
     # Security
     db.session.add(SecuritySystem(computer_id=comp.id, security_type=SEC_MONITOR, level=3))
@@ -748,6 +811,14 @@ def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMER
             file_type="DATA",
             encrypted=random.random() < 0.3,
         ))
+
+    # System core file (target for Denial of Service missions)
+    db.session.add(DataFile(
+        computer_id=ism.id,
+        filename="system_core.sys",
+        size=1,
+        file_type="SYSTEM",
+    ))
 
     # Bank computer for financial companies
     if company_type == TYPE_FINANCIAL:

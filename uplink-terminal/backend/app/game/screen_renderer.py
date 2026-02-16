@@ -12,6 +12,7 @@ def render_screen(computer, screen, session=None):
     renderers = {
         SCREEN_MESSAGE: _render_message,
         SCREEN_PASSWORD: _render_password,
+        SCREEN_VOICEPRINT: _render_voiceprint,
         SCREEN_MENU: _render_menu,
         SCREEN_FILESERVER: _render_fileserver,
         SCREEN_LOGSCREEN: _render_logscreen,
@@ -63,6 +64,22 @@ def _render_password(computer, screen, session):
     lines.append(f"  {yellow('Enter password to gain access.')}")
     lines.append("")
     lines.append(dim("  Type the password, or 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_voiceprint(computer, screen, session):
+    """Render VOICEPRINT authentication screen."""
+    content = screen.content
+    voiceprint_target = content.get("voiceprint_target", "unknown")
+
+    lines = _screen_header(screen.title, screen.subtitle)
+    lines.append(f"  {yellow('Voice Authentication Required')}")
+    lines.append("")
+    lines.append(f"  Present voiceprint for: {bright_green(voiceprint_target)}")
+    lines.append("")
+    lines.append(dim("  Use 'use <filename>' to present a voiceprint from your gateway."))
+    lines.append(dim("  Type 'back' to go back, 'dc' to disconnect."))
     lines.append("")
     return "\n".join(lines)
 
