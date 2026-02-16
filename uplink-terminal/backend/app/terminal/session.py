@@ -28,6 +28,9 @@ class TerminalSession:
         self.sysadmin_state = 0
         self.sysadmin_node = None
         self.sysadmin_timer = 0
+        # LAN Spoof state
+        self.lan_spoofed = False
+        self.lan_spoof_expires = 0
 
     @property
     def is_in_lan(self):
@@ -82,6 +85,8 @@ class TerminalSession:
         self.sysadmin_state = 0
         self.sysadmin_node = None
         self.sysadmin_timer = 0
+        self.lan_spoofed = False
+        self.lan_spoof_expires = 0
 
     def disconnect(self):
         """Disconnect from current computer."""
@@ -92,3 +97,5 @@ class TerminalSession:
         self.sysadmin_state = 0
         self.sysadmin_node = None
         self.sysadmin_timer = 0
+        self.lan_spoofed = False
+        self.lan_spoof_expires = 0

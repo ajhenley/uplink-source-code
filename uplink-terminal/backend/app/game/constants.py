@@ -139,6 +139,10 @@ TOOL_IP_PROBE = "IP_PROBE"
 TOOL_LOG_MODIFIER = "LOG_MODIFIER"
 TOOL_DICTIONARY_HACKER = "DICTIONARY_HACKER"
 TOOL_VOICE_ANALYSER = "VOICE_ANALYSER"
+TOOL_LAN_SCAN = "LAN_SCAN"
+TOOL_LAN_PROBE = "LAN_PROBE"
+TOOL_LAN_FORCE = "LAN_FORCE"
+TOOL_LAN_SPOOF = "LAN_SPOOF"
 
 # Version speed scaling
 VERSION_SPEED_STEP = 0.5
@@ -160,6 +164,10 @@ TOOL_TICKS = {
     "LOG_MODIFIER": 40,       # flat ticks (faster than LOG_DELETER)
     "DICTIONARY_HACKER": 25,  # per-character (faster than PASSWORD_BREAKER's 45)
     "VOICE_ANALYSER": 50,     # flat rate, scaled by version/CPU
+    "LAN_SCAN": 40,           # flat — discovers all LAN nodes
+    "LAN_PROBE": 30,          # flat — deep scan of a specific node
+    "LAN_FORCE": 35,          # per security level — brute force a LOCK node
+    "LAN_SPOOF": 45,          # flat — activates sysadmin cloaking
 }
 
 # Tool statuses
@@ -255,6 +263,30 @@ SOFTWARE_CATALOG = [
     ("Voice Analyser", "VOICE_ANALYSER", "3.0", 2, 2800),
     ("Voice Analyser", "VOICE_ANALYSER", "4.0", 2, 4000),
     ("Voice Analyser", "VOICE_ANALYSER", "5.0", 3, 5600),
+    # LAN Scan — discover all LAN nodes at once (base: 1 GQ, 600c)
+    ("LAN Scan", "LAN_SCAN", "1.0", 1, 600),
+    ("LAN Scan", "LAN_SCAN", "2.0", 1, 1200),
+    ("LAN Scan", "LAN_SCAN", "3.0", 2, 2100),
+    ("LAN Scan", "LAN_SCAN", "4.0", 2, 3000),
+    ("LAN Scan", "LAN_SCAN", "5.0", 3, 4800),
+    # LAN Probe — deep scan a specific LAN node + discover connections (base: 1 GQ, 500c)
+    ("LAN Probe", "LAN_PROBE", "1.0", 1, 500),
+    ("LAN Probe", "LAN_PROBE", "2.0", 1, 1000),
+    ("LAN Probe", "LAN_PROBE", "3.0", 2, 1750),
+    ("LAN Probe", "LAN_PROBE", "4.0", 2, 2500),
+    ("LAN Probe", "LAN_PROBE", "5.0", 3, 4000),
+    # LAN Force — brute force a LOCK node open, alerts sysadmin (base: 2 GQ, 1800c)
+    ("LAN Force", "LAN_FORCE", "1.0", 2, 1800),
+    ("LAN Force", "LAN_FORCE", "2.0", 2, 3600),
+    ("LAN Force", "LAN_FORCE", "3.0", 3, 6300),
+    ("LAN Force", "LAN_FORCE", "4.0", 3, 9000),
+    ("LAN Force", "LAN_FORCE", "5.0", 4, 14400),
+    # LAN Spoof — hide from sysadmin while in LAN (base: 2 GQ, 2000c)
+    ("LAN Spoof", "LAN_SPOOF", "1.0", 2, 2000),
+    ("LAN Spoof", "LAN_SPOOF", "2.0", 2, 4000),
+    ("LAN Spoof", "LAN_SPOOF", "3.0", 3, 7000),
+    ("LAN Spoof", "LAN_SPOOF", "4.0", 3, 10000),
+    ("LAN Spoof", "LAN_SPOOF", "5.0", 4, 16000),
 ]
 
 # Mission payments (base, variance fraction)
@@ -318,6 +350,10 @@ TOOL_ALIASES = {
     "log_modifier": "LOG_MODIFIER",
     "dictionary_hacker": "DICTIONARY_HACKER",
     "voice_analyser": "VOICE_ANALYSER",
+    "lan_scan": "LAN_SCAN",
+    "lan_probe": "LAN_PROBE",
+    "lan_force": "LAN_FORCE",
+    "lan_spoof": "LAN_SPOOF",
 }
 
 

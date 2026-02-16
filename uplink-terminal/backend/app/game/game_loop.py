@@ -95,6 +95,17 @@ def tick():
             if gs.game_time_ticks % SYSADMIN_TICK_INTERVAL < gs.speed_multiplier:
                 _tick_sysadmin(gs, ts)
 
+        # --- LAN Spoof countdown ---
+        if ts.lan_spoofed and ts.lan_spoof_expires > 0:
+            ts.lan_spoof_expires -= gs.speed_multiplier
+            if ts.lan_spoof_expires <= 0:
+                ts.lan_spoofed = False
+                ts.lan_spoof_expires = 0
+                from ..extensions import socketio
+                from ..terminal.output import warning
+                socketio.emit("output", {"text": "\n" + warning("LAN Spoof expired. You are visible again.") + "\n"}, to=ts.sid)
+                socketio.emit("prompt", {"text": ts.prompt}, to=ts.sid)
+
         # --- Trace advancement ---
         conn = Connection.query.filter_by(
             game_session_id=gs.id
@@ -247,6 +258,84 @@ def _push_tool_events(ts, events):
                 else:
                     vp_name = rt.result.get("name", "unknown") if rt.result else "unknown"
                     msg = success(f"{tool_name} complete — voiceprint for '{vp_name}' recorded to gateway.")
+            elif rt.tool_type == "LAN_SCAN":
+                count = rt.result.get("nodes_discovered", 0) if rt.result else 0
+                total = rt.result.get("total_nodes", 0) if rt.result else 0
+                msg = success(f"{tool_name} complete — {count} new node(s) discovered ({total} total).")
+                # Re-render LAN screen
+                if ts.is_in_lan:
+                    comp = Computer.query.filter_by(
+                        game_session_id=ts.game_session_id,
+                        ip=ts.current_computer_ip,
+                    ).first()
+                    if comp:
+                        screen = comp.get_screen(ts.current_screen_index)
+                        if screen:
+                            msg += "\n" + render_screen(comp, screen, ts)
+            elif rt.tool_type == "LAN_PROBE":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    result = rt.result or {}
+                    label = result.get("label", "?")
+                    ntype = result.get("node_type", "?")
+                    sec = result.get("security_level", 0)
+                    locked = result.get("is_locked", False)
+                    files = result.get("files_count", 0)
+                    conns = result.get("connections", [])
+                    new_conns = result.get("connections_discovered", 0)
+                    status_str = "LOCKED" if locked else "OPEN"
+                    msg = success(f"{tool_name} complete — {label}")
+                    msg += f"\n  Type: {ntype}  Security: {sec}  Status: {status_str}"
+                    if files > 0:
+                        msg += f"\n  Files: {files}"
+                    if conns:
+                        msg += f"\n  Connections: {', '.join(conns)}"
+                    if new_conns > 0:
+                        msg += f"\n  ({new_conns} new node(s) discovered)"
+                    # Re-render if new nodes discovered
+                    if new_conns > 0 and ts.is_in_lan:
+                        comp = Computer.query.filter_by(
+                            game_session_id=ts.game_session_id,
+                            ip=ts.current_computer_ip,
+                        ).first()
+                        if comp:
+                            screen = comp.get_screen(ts.current_screen_index)
+                            if screen:
+                                msg += "\n" + render_screen(comp, screen, ts)
+            elif rt.tool_type == "LAN_FORCE":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    result = rt.result or {}
+                    label = result.get("label", "?")
+                    sec = result.get("security_level", 0)
+                    msg = success(f"{tool_name} complete — '{label}' forced open (security {sec}).")
+                    if result.get("wake_sysadmin"):
+                        from .constants import SYSADMIN_CURIOUS
+                        msg += "\n" + warning("ALERT: SysAdmin has been alerted!")
+                        ts.sysadmin_state = SYSADMIN_CURIOUS
+                        ts.sysadmin_timer = 0
+                    # Re-render LAN screen
+                    if ts.is_in_lan:
+                        comp = Computer.query.filter_by(
+                            game_session_id=ts.game_session_id,
+                            ip=ts.current_computer_ip,
+                        ).first()
+                        if comp:
+                            screen = comp.get_screen(ts.current_screen_index)
+                            if screen:
+                                msg += "\n" + render_screen(comp, screen, ts)
+            elif rt.tool_type == "LAN_SPOOF":
+                if err:
+                    msg = warning(f"{tool_name} failed — {err}")
+                else:
+                    result = rt.result or {}
+                    duration = result.get("spoof_duration", 200)
+                    msg = success(f"{tool_name} active — invisible to SysAdmin for {duration} ticks.")
+                    if result.get("activate_spoof"):
+                        ts.lan_spoofed = True
+                        ts.lan_spoof_expires = duration
             else:
                 msg = success(f"{tool_name} complete.")
 
@@ -797,17 +886,34 @@ def _tick_sysadmin(gs, ts):
                 label = next_node.label if next_node else f"Node {next_node_idx}"
 
                 if next_node_idx == ts.current_lan_node:
-                    # Caught the player
-                    ts.sysadmin_state = SYSADMIN_FOUNDYOU
-                    _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes)
+                    if ts.lan_spoofed:
+                        # Spoofed — sysadmin passes through, returns to sleep
+                        msg = warning("SysAdmin searched your node but didn't detect you! (Spoof active)")
+                        socketio.emit("output", {"text": "\n" + msg + "\n"}, to=sid)
+                        socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+                        ts.sysadmin_state = SYSADMIN_ASLEEP
+                        ts.sysadmin_node = None
+                        ts.sysadmin_timer = 0
+                    else:
+                        # Caught the player
+                        ts.sysadmin_state = SYSADMIN_FOUNDYOU
+                        _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes)
                 else:
                     msg = warning(f"SysAdmin moved to {label}")
                     socketio.emit("output", {"text": "\n" + msg + "\n"}, to=sid)
                     socketio.emit("prompt", {"text": ts.prompt}, to=sid)
             elif len(path) <= 1:
-                # Already at player or no path — caught
-                ts.sysadmin_state = SYSADMIN_FOUNDYOU
-                _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes)
+                # Already at player or no path
+                if ts.lan_spoofed:
+                    msg = warning("SysAdmin searched your node but didn't detect you! (Spoof active)")
+                    socketio.emit("output", {"text": "\n" + msg + "\n"}, to=sid)
+                    socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+                    ts.sysadmin_state = SYSADMIN_ASLEEP
+                    ts.sysadmin_node = None
+                    ts.sysadmin_timer = 0
+                else:
+                    ts.sysadmin_state = SYSADMIN_FOUNDYOU
+                    _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes)
 
 
 def _sysadmin_catch_player(gs, ts, computer, by_index, lan_nodes):

@@ -618,6 +618,12 @@ def _render_lan(computer, screen, session):
     if sa_state > SYSADMIN_ASLEEP:
         lines.append("")
 
+    # Spoof status indicator
+    if getattr(session, 'lan_spoofed', False):
+        spoof_ticks = getattr(session, 'lan_spoof_expires', 0)
+        lines.append(f"  {bright_green('[SPOOFED]')} Invisible to SysAdmin ({max(0, spoof_ticks)} ticks remaining)")
+        lines.append("")
+
     # Current node info
     current_node = by_index.get(current_idx)
     if current_node:

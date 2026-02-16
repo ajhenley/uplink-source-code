@@ -3,7 +3,7 @@
 from ..extensions import db
 from ..models import (
     Software, RunningTool, Computer, DataFile, AccessLog,
-    GameSession, Connection, SecuritySystem, PlayerLink,
+    GameSession, Connection, SecuritySystem, PlayerLink, LanNode,
 )
 from .constants import *
 
@@ -91,6 +91,46 @@ def start_tool(session, tool_type, target_ip, target_param=None):
     elif tool_type == TOOL_VOICE_ANALYSER:
         if not target_param:
             return False, "Usage: run voice_analyser <filename>"
+    # LAN tool validation: must be in LAN
+    elif tool_type in (TOOL_LAN_SCAN, TOOL_LAN_PROBE, TOOL_LAN_FORCE, TOOL_LAN_SPOOF):
+        if not session.is_in_lan:
+            return False, "You must be inside a LAN to use LAN tools."
+        if tool_type == TOOL_LAN_PROBE:
+            if not target_param:
+                return False, "Usage: run lan_probe <node_index>"
+            try:
+                node_idx = int(target_param)
+            except ValueError:
+                return False, "Usage: run lan_probe <node_index> (must be a number)"
+            node = LanNode.query.filter_by(computer_id=comp.id, node_index=node_idx).first()
+            if not node:
+                return False, f"Node {node_idx} does not exist on this LAN."
+            if not node.is_discovered:
+                return False, f"Node {node_idx} has not been discovered yet."
+        elif tool_type == TOOL_LAN_FORCE:
+            if not target_param:
+                return False, "Usage: run lan_force <node_index>"
+            try:
+                node_idx = int(target_param)
+            except ValueError:
+                return False, "Usage: run lan_force <node_index> (must be a number)"
+            node = LanNode.query.filter_by(computer_id=comp.id, node_index=node_idx).first()
+            if not node:
+                return False, f"Node {node_idx} does not exist on this LAN."
+            if node.node_type != LAN_LOCK:
+                return False, "LAN Force only works on LOCK nodes."
+            if not node.is_locked or node.is_bypassed:
+                return False, f"Node '{node.label}' is already unlocked."
+            try:
+                tool_ver = float(sw.version)
+            except (TypeError, ValueError):
+                tool_ver = 1.0
+            if tool_ver < node.security_level:
+                return False, (
+                    f"LAN Force v{sw.version} is insufficient. "
+                    f"Node requires security level {node.security_level} "
+                    f"(need LAN Force v{node.security_level}.0+)."
+                )
 
     # FILE_COPIER: auto-detect upload vs download
     if tool_type == TOOL_FILE_COPIER and target_param and comp:
@@ -359,6 +399,33 @@ def _calc_ticks(tool_type, gsid, target_ip, target_param):
     elif tool_type == TOOL_VOICE_ANALYSER:
         raw = base  # flat 50 ticks, scaled by version/CPU
 
+    elif tool_type == TOOL_LAN_SCAN:
+        raw = base  # flat 40 ticks
+
+    elif tool_type == TOOL_LAN_PROBE:
+        raw = base  # flat 30 ticks
+
+    elif tool_type == TOOL_LAN_FORCE:
+        # Ticks per security level of the target LOCK node
+        comp = Computer.query.filter_by(
+            game_session_id=gsid, ip=target_ip
+        ).first()
+        sec_level = 1
+        if comp and target_param:
+            try:
+                node_idx = int(target_param)
+            except ValueError:
+                node_idx = 0
+            node = LanNode.query.filter_by(
+                computer_id=comp.id, node_index=node_idx
+            ).first()
+            if node:
+                sec_level = max(1, node.security_level)
+        raw = base * sec_level
+
+    elif tool_type == TOOL_LAN_SPOOF:
+        raw = base  # flat 45 ticks
+
     else:
         raw = base
 
@@ -410,6 +477,14 @@ def _execute_tool_effect(rt, ts=None):
         _effect_dictionary_hacker(rt, ts)
     elif rt.tool_type == TOOL_VOICE_ANALYSER:
         _effect_voice_analyser(rt)
+    elif rt.tool_type == TOOL_LAN_SCAN:
+        _effect_lan_scan(rt)
+    elif rt.tool_type == TOOL_LAN_PROBE:
+        _effect_lan_probe(rt)
+    elif rt.tool_type == TOOL_LAN_FORCE:
+        _effect_lan_force(rt)
+    elif rt.tool_type == TOOL_LAN_SPOOF:
+        _effect_lan_spoof(rt)
 
 
 def _effect_password_breaker(rt, ts=None):
@@ -860,3 +935,133 @@ def _effect_voice_analyser(rt):
         action=f"Voice analysed: {rt.target_param}",
         suspicious=True,
     ))
+
+
+def _effect_lan_scan(rt):
+    """Discover all LAN nodes on the target computer."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp:
+        return
+
+    nodes = LanNode.query.filter_by(computer_id=comp.id).all()
+    count = 0
+    total = len(nodes)
+    for node in nodes:
+        if not node.is_discovered:
+            node.is_discovered = True
+            count += 1
+
+    rt.result = {"nodes_discovered": count, "total_nodes": total}
+
+
+def _effect_lan_probe(rt):
+    """Deep scan a specific LAN node and discover its connections."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp or not rt.target_param:
+        return
+
+    try:
+        node_idx = int(rt.target_param)
+    except (ValueError, TypeError):
+        rt.result = {"error": "Invalid node index."}
+        return
+
+    target_node = LanNode.query.filter_by(
+        computer_id=comp.id, node_index=node_idx
+    ).first()
+    if not target_node:
+        rt.result = {"error": f"Node {node_idx} not found."}
+        return
+
+    # Discover all connected nodes
+    connections_discovered = 0
+    connection_labels = []
+    for adj_idx in target_node.connections:
+        adj_node = LanNode.query.filter_by(
+            computer_id=comp.id, node_index=adj_idx
+        ).first()
+        if adj_node:
+            if not adj_node.is_discovered:
+                adj_node.is_discovered = True
+                connections_discovered += 1
+            connection_labels.append(adj_node.label)
+
+    # Count files on node (for file server / mainframe)
+    files_count = 0
+    if target_node.content:
+        content = target_node.content
+        files = content.get("files", [])
+        files_count = len(files)
+
+    rt.result = {
+        "label": target_node.label,
+        "node_type": target_node.node_type,
+        "security_level": target_node.security_level,
+        "is_locked": target_node.is_locked and not target_node.is_bypassed,
+        "files_count": files_count,
+        "connections": connection_labels,
+        "connections_discovered": connections_discovered,
+    }
+
+
+def _effect_lan_force(rt):
+    """Brute force a LOCK node open. Triggers sysadmin alert."""
+    comp = Computer.query.filter_by(
+        game_session_id=rt.game_session_id, ip=rt.target_ip
+    ).first()
+    if not comp or not rt.target_param:
+        return
+
+    gs = db.session.get(GameSession, rt.game_session_id)
+
+    try:
+        node_idx = int(rt.target_param)
+    except (ValueError, TypeError):
+        rt.result = {"error": "Invalid node index."}
+        return
+
+    node = LanNode.query.filter_by(
+        computer_id=comp.id, node_index=node_idx
+    ).first()
+    if not node:
+        rt.result = {"error": f"Node {node_idx} not found."}
+        return
+
+    node.is_locked = False
+    node.is_bypassed = True
+
+    # Create suspicious access log
+    if gs:
+        db.session.add(AccessLog(
+            computer_id=comp.id,
+            game_tick=gs.game_time_ticks,
+            from_ip=gs.gateway_ip or "unknown",
+            from_name="agent",
+            action=f"LAN LOCK forced: {node.label}",
+            suspicious=True,
+        ))
+
+    rt.result = {
+        "forced": True,
+        "label": node.label,
+        "security_level": node.security_level,
+        "wake_sysadmin": True,
+    }
+
+
+def _effect_lan_spoof(rt):
+    """Activate sysadmin cloaking. Duration based on software version."""
+    sw = Software.query.filter_by(
+        game_session_id=rt.game_session_id, software_type=TOOL_LAN_SPOOF
+    ).first()
+    try:
+        version = float(sw.version) if sw else 1.0
+    except (TypeError, ValueError):
+        version = 1.0
+
+    duration = int(150 + version * 50)
+    rt.result = {"activate_spoof": True, "spoof_duration": duration}

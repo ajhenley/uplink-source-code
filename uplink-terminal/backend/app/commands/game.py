@@ -537,7 +537,9 @@ def cmd_run(args, session):
                       "         log_modifier, proxy_disable, firewall_disable, "
                       "monitor_bypass, decrypter <file>,\n"
                       "         bypasser, ip_probe, dictionary_hacker, "
-                      "voice_analyser <file>")
+                      "voice_analyser <file>,\n"
+                      "         lan_scan, lan_probe <node#>, "
+                      "lan_force <node#>, lan_spoof")
 
     tool_name = args[0].lower()
     tool_type = TOOL_ALIASES.get(tool_name)
@@ -552,6 +554,9 @@ def cmd_run(args, session):
     # FILE_COPIER, FILE_DELETER, and VOICE_ANALYSER require a filename
     if tool_type in (TOOL_FILE_COPIER, TOOL_FILE_DELETER, TOOL_VOICE_ANALYSER) and not target_param:
         return error(f"Usage: run {tool_name} <filename>")
+
+    if tool_type in (TOOL_LAN_PROBE, TOOL_LAN_FORCE) and not target_param:
+        return error(f"Usage: run {tool_name} <node_index>")
 
     from ..game.tool_engine import start_tool
     ok, msg = start_tool(session, tool_type, session.current_computer_ip, target_param)
