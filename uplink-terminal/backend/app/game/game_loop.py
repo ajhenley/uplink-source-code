@@ -27,7 +27,7 @@ def tick():
     from ..models import GameSession, Connection, Computer
     from .tool_engine import tick_tools
     from .mission_engine import generate_missions, check_mission_expiry
-    from .constants import ADMIN_REVIEW_INTERVAL, NEWS_GENERATION_INTERVAL, PLOT_START_TICK
+    from .constants import ADMIN_REVIEW_INTERVAL, NEWS_GENERATION_INTERVAL, PLOT_START_TICK, NPC_MISSION_INTERVAL
 
     active_sessions = [
         ts for ts in sessions.values()
@@ -71,6 +71,10 @@ def tick():
         if gs.game_time_ticks % NEWS_GENERATION_INTERVAL < gs.speed_multiplier:
             from .news_engine import generate_random_news
             generate_random_news(gs.id, gs.game_time_ticks)
+
+        # --- NPC agent missions (every ~400 ticks) ---
+        if gs.game_time_ticks % NPC_MISSION_INTERVAL < gs.speed_multiplier:
+            _tick_npc_agents(gs)
 
         # --- Plot advancement ---
         if gs.game_time_ticks >= PLOT_START_TICK:
@@ -291,14 +295,19 @@ def _admin_review(gs, ts):
     applies fines and criminal record increments based on severity,
     sends warning emails, and marks logs invisible to prevent double-punishment.
     """
-    from ..models import Computer, AccessLog, Email, SecuritySystem
+    from ..models import Computer, AccessLog, Email, SecuritySystem, ComputerScreen
     from .constants import (
         FINE_LOW, FINE_MEDIUM, FINE_HIGH,
         CRIMINAL_THRESHOLD_GAMEOVER, get_criminal_level_name,
         SECURITY_MAX_LEVEL, SEC_MONITOR, SEC_PROXY,
+        PASSWORD_POOL, PASSWORD_ROTATION_POOL,
+        RETALIATION_TRACE_BOOST, RETALIATION_TRACE_MIN,
+        RETALIATION_COUNTER_CHANCE, RETALIATION_COUNTER_FINE,
     )
     from ..extensions import socketio
     from ..terminal.output import warning, error
+
+    sid = ts.sid
 
     # Only review computers with active tracing
     computers = Computer.query.filter(
@@ -357,6 +366,66 @@ def _admin_review(gs, ts):
                     computer_id=comp.id, security_type=SEC_PROXY, level=1
                 ))
 
+        # --- Password rotation ---
+        import random as _rng
+        all_passwords = PASSWORD_POOL + PASSWORD_ROTATION_POOL
+        candidates = [p for p in all_passwords if p != comp.admin_password]
+        if candidates:
+            new_pw = _rng.choice(candidates)
+            comp.admin_password = new_pw
+            # Sync the PASSWORD screen
+            pw_screen = ComputerScreen.query.filter_by(
+                computer_id=comp.id, screen_type="PASSWORD"
+            ).first()
+            if pw_screen:
+                pw_screen.password = new_pw
+
+        # --- Company retaliation ---
+        # Boost trace speed (cumulative — faster trace on repeated breaches)
+        if comp.trace_speed > 0:
+            comp.trace_speed = max(
+                RETALIATION_TRACE_MIN,
+                int(comp.trace_speed * (1 - RETALIATION_TRACE_BOOST))
+            )
+
+        # HIGH severity counter-attack
+        if severity == "HIGH" and _rng.random() < RETALIATION_COUNTER_CHANCE:
+            gs.balance = max(0, gs.balance - RETALIATION_COUNTER_FINE)
+            # Counter-attack email
+            db.session.add(Email(
+                game_session_id=gs.id,
+                subject=f"THREAT: {comp.company_name} Retaliation",
+                body=(
+                    f"{comp.company_name} has launched a counter-attack.\n\n"
+                    f"Our forensics team traced the breach to your gateway.\n"
+                    f"A fine of {RETALIATION_COUNTER_FINE} credits has been deducted.\n\n"
+                    f"Further intrusions will be met with escalating force.\n"
+                    f"Consider this your final warning."
+                ),
+                from_addr=f"{comp.company_name} Security",
+                to_addr="agent",
+                game_tick_sent=gs.game_time_ticks,
+            ))
+            # Counter-attack news
+            from .news_engine import generate_news_article as _gen_counter_news
+            _gen_counter_news(
+                gs.id,
+                f"{comp.company_name} launches counter-attack on hacker",
+                (
+                    f"{comp.company_name} security division has retaliated against\n"
+                    f"a hacker responsible for recent breaches. Company sources\n"
+                    f"confirm financial penalties were imposed on the attacker."
+                ),
+                f"{comp.company_name} Security",
+                gs.game_time_ticks,
+            )
+            # Push WebSocket warning
+            counter_msg = warning(
+                f"COUNTER-ATTACK: {comp.company_name} fined you {RETALIATION_COUNTER_FINE}c!"
+            )
+            socketio.emit("output", {"text": "\n" + counter_msg + "\n"}, to=sid)
+            socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+
         # Generate breach news article
         from .news_engine import generate_news_article
         generate_news_article(
@@ -413,7 +482,6 @@ def _admin_review(gs, ts):
         ))
 
         # Push WebSocket notification
-        sid = ts.sid
         if fine > 0:
             msg = warning(f"Admin review: fined {fine}c for suspicious activity on {comp.name}.")
         else:
@@ -427,12 +495,43 @@ def _admin_review(gs, ts):
 
 
 def _execute_arrest(gs, ts):
-    """Game over via arrest: send email, force disconnect, deactivate session."""
-    from ..models import Connection, Email
+    """Game over via arrest: seize gateway, send email, force disconnect, deactivate session."""
+    from ..models import Connection, Email, Computer, Software, Hardware, DataFile
     from ..extensions import socketio
     from ..terminal.output import error, bright_red
 
     sid = ts.sid
+
+    # --- Gateway seizure ---
+    seized_sw = 0
+    seized_hw = 0
+    seized_credits = gs.balance
+
+    # Delete all software
+    sw_rows = Software.query.filter_by(game_session_id=gs.id).all()
+    seized_sw = len(sw_rows)
+    for sw in sw_rows:
+        db.session.delete(sw)
+
+    # Delete all hardware
+    hw_rows = Hardware.query.filter_by(game_session_id=gs.id).all()
+    seized_hw = len(hw_rows)
+    for hw in hw_rows:
+        db.session.delete(hw)
+
+    # Delete all data files on gateway
+    gw = Computer.query.filter_by(
+        game_session_id=gs.id, ip=gs.gateway_ip
+    ).first()
+    seized_files = 0
+    if gw:
+        gw_files = DataFile.query.filter_by(computer_id=gw.id).all()
+        seized_files = len(gw_files)
+        for f in gw_files:
+            db.session.delete(f)
+
+    # Zero balance
+    gs.balance = 0
 
     # Send arrest email
     db.session.add(Email(
@@ -441,6 +540,11 @@ def _execute_arrest(gs, ts):
         body=(
             "Your criminal activities have been traced back to you.\n\n"
             "Federal agents have arrested you at your home.\n"
+            "Your gateway has been seized as evidence.\n"
+            f"  - {seized_sw} software tool(s) confiscated\n"
+            f"  - {seized_hw} hardware component(s) confiscated\n"
+            f"  - {seized_files} file(s) deleted from gateway\n"
+            f"  - {seized_credits:,} credits frozen\n\n"
             "Your Uplink account has been permanently deactivated.\n\n"
             "Game Over."
         ),
@@ -448,6 +552,21 @@ def _execute_arrest(gs, ts):
         to_addr="agent",
         game_tick_sent=gs.game_time_ticks,
     ))
+
+    # Generate arrest news article
+    from .news_engine import generate_news_article
+    generate_news_article(
+        gs.id,
+        "Uplink agent arrested by federal authorities",
+        (
+            "An Uplink-registered agent has been arrested following\n"
+            "an extensive investigation into computer crimes.\n"
+            "Federal agents seized the suspect's gateway equipment\n"
+            "and all digital assets. The agent faces multiple charges."
+        ),
+        "Federal Investigation Bureau",
+        gs.game_time_ticks,
+    )
 
     # Force disconnect if connected
     conn = Connection.query.filter_by(game_session_id=gs.id).first()
@@ -460,13 +579,19 @@ def _execute_arrest(gs, ts):
     # Deactivate session
     gs.is_active = False
 
-    # Emit game over banner
+    # Emit game over banner with seizure details
     banner = (
         "\n" +
         bright_red("=" * 56) + "\n" +
         bright_red("  GAME OVER") + "\n" +
         bright_red("  You have been arrested.") + "\n" +
         bright_red(f"  Criminal Record: {gs.criminal_record} offense(s)") + "\n" +
+        bright_red("") + "\n" +
+        bright_red("  GATEWAY SEIZED:") + "\n" +
+        bright_red(f"    Software confiscated:  {seized_sw}") + "\n" +
+        bright_red(f"    Hardware confiscated:  {seized_hw}") + "\n" +
+        bright_red(f"    Files deleted:         {seized_files}") + "\n" +
+        bright_red(f"    Credits frozen:        {seized_credits:,}c") + "\n" +
         bright_red("=" * 56) + "\n"
     )
     socketio.emit("output", {"text": banner}, to=sid)
@@ -475,6 +600,82 @@ def _execute_arrest(gs, ts):
     ts.disconnect()
     ts.leave_game()
     socketio.emit("prompt", {"text": ts.prompt}, to=sid)
+
+
+def _tick_npc_agents(gs):
+    """Simulate NPC agents competing for BBS missions."""
+    import random as _rng
+    from ..models import Mission
+    from .constants import (
+        NPC_AGENT_NAMES, NPC_MISSION_CHANCE, NPC_CAUGHT_CHANCE,
+        NPC_CAUGHT_RATING_PENALTY, NPC_RATING_GAIN_BASE, NPC_RATING_GAIN_VARIANCE,
+        MISSION_AVAILABLE, MISSION_COMPLETED,
+    )
+
+    plot_data = gs.plot_data
+
+    # Initialize NPC state if absent
+    if "npc_agents" not in plot_data:
+        rng = _rng.Random(gs.id)
+        npc_agents = {}
+        for name in NPC_AGENT_NAMES:
+            npc_agents[name] = {
+                "rating": rng.randint(0, 150),
+                "active": True,
+            }
+        plot_data["npc_agents"] = npc_agents
+        gs.plot_data = plot_data
+
+    npc_agents = plot_data["npc_agents"]
+
+    # Pick a random active NPC
+    active_npcs = [name for name, data in npc_agents.items() if data.get("active")]
+    if not active_npcs:
+        return
+
+    chosen_name = _rng.choice(active_npcs)
+
+    # Roll for mission attempt
+    if _rng.random() > NPC_MISSION_CHANCE:
+        return
+
+    # Find an available mission
+    available = Mission.query.filter_by(
+        game_session_id=gs.id, status=MISSION_AVAILABLE
+    ).all()
+    if not available:
+        return
+
+    mission = _rng.choice(available)
+
+    # Roll for caught
+    if _rng.random() < NPC_CAUGHT_CHANCE:
+        # NPC gets caught — loses rating, news generated
+        penalty = min(npc_agents[chosen_name]["rating"], NPC_CAUGHT_RATING_PENALTY)
+        npc_agents[chosen_name]["rating"] = max(0, npc_agents[chosen_name]["rating"] - penalty)
+
+        from .news_engine import generate_news_article
+        generate_news_article(
+            gs.id,
+            f"Agent '{chosen_name}' caught during hack attempt",
+            (
+                f"Uplink agent known as '{chosen_name}' was detected while\n"
+                f"attempting unauthorized access. The agent's rating has\n"
+                f"been penalized. The target system's security held."
+            ),
+            "Uplink Internal Affairs",
+            gs.game_time_ticks,
+        )
+    else:
+        # NPC succeeds — complete mission, gain rating
+        mission.status = MISSION_COMPLETED
+        mission.completed_at_tick = gs.game_time_ticks
+
+        gain = NPC_RATING_GAIN_BASE + _rng.randint(0, NPC_RATING_GAIN_VARIANCE)
+        npc_agents[chosen_name]["rating"] += gain
+
+    plot_data["npc_agents"] = npc_agents
+    gs.plot_data = plot_data
 
 
 def _bfs_path(by_index, start, goal):

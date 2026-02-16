@@ -72,6 +72,13 @@ PASSWORD_POOL = [
     "wizard", "hunter", "phoenix", "diamond", "crystal",
 ]
 
+# Password rotation pool (used after admin review)
+PASSWORD_ROTATION_POOL = [
+    "br34ch3d", "s3cur1ty", "r0t4t3d", "l0ckd0wn", "h4rd3n3d",
+    "n3wp4ss", "ch4ng3d", "upd4t3d", "r3s3t01", "f1r3w4ll",
+    "c0mpl3x", "str0ng3r", "d3f3ns3", "4l3rt3d", "m0n1t0r",
+]
+
 # File name pools
 FILE_NAMES = [
     "accounts.dat", "payroll.dat", "staff_records.dat",
@@ -338,6 +345,12 @@ CRIMINAL_LEVEL_NAMES = {
     0: "Clean", 1: "Caution", 3: "Flagged", 6: "Wanted", 10: "Arrested",
 }
 
+# Company retaliation
+RETALIATION_TRACE_BOOST = 0.15
+RETALIATION_TRACE_MIN = 5
+RETALIATION_COUNTER_CHANCE = 0.20
+RETALIATION_COUNTER_FINE = 1000
+
 
 # NPC name pool (for bank accounts and records)
 NPC_NAMES = [
@@ -399,6 +412,14 @@ NPC_AGENT_NAMES = [
     "Ghost", "Neo", "Morpheus", "Trinity",
     "Darkstar", "Binary", "Cipher",
 ]
+
+# NPC agent simulation
+NPC_MISSION_INTERVAL = 400
+NPC_MISSION_CHANCE = 0.35
+NPC_CAUGHT_CHANCE = 0.08
+NPC_CAUGHT_RATING_PENALTY = 15
+NPC_RATING_GAIN_BASE = 3
+NPC_RATING_GAIN_VARIANCE = 4
 
 # Rating tier thresholds and unlock hints
 RATING_UNLOCK_HINTS = {

@@ -424,13 +424,22 @@ def _render_rankings(computer, screen, session):
         from ..extensions import db
         gs = db.session.get(GameSession, session.game_session_id)
 
-    # Generate seeded NPC ratings based on game session id
-    seed = session.game_session_id or 0
-    rng = _rng.Random(seed)
+    # Read persisted NPC state, fall back to seeded RNG
+    npc_data = gs.plot_data.get("npc_agents") if gs else None
+
     entries = []
-    for name in NPC_AGENT_NAMES:
-        npc_rating = rng.randint(0, 150)
-        entries.append((name, npc_rating, False))
+    if npc_data:
+        for name, data in npc_data.items():
+            if not data.get("active", True):
+                continue
+            entries.append((name, data.get("rating", 0), False))
+    else:
+        # Legacy fallback: seeded RNG for sessions without NPC data
+        seed = session.game_session_id or 0
+        rng = _rng.Random(seed)
+        for name in NPC_AGENT_NAMES:
+            npc_rating = rng.randint(0, 150)
+            entries.append((name, npc_rating, False))
 
     # Add player
     player_name = session.username or "AGENT"
