@@ -100,6 +100,8 @@ SCREEN_RANKINGS = "RANKINGS"
 SCREEN_LAN = "LAN"
 SCREEN_VOICEPRINT = "VOICEPRINT"
 SCREEN_STOCKMARKET = "STOCKMARKET"
+SCREEN_HIGHSECURITY = "HIGHSECURITY"
+SCREEN_CONSOLE = "CONSOLE"
 
 # Game speed labels
 SPEED_LABELS = {0: "Paused", 1: "Normal", 3: "Fast", 8: "MegaFast"}
@@ -119,6 +121,7 @@ MISSION_REMOVE_COMPUTER = "REMOVE_COMPUTER"
 MISSION_CHANGE_SOCIAL = "CHANGE_SOCIAL"
 MISSION_DENIAL_OF_SERVICE = "DENIAL_OF_SERVICE"
 MISSION_STOCK_FRAUD = "STOCK_FRAUD"
+MISSION_PAY_FINE = "PAY_FINE"
 
 # Mission statuses
 MISSION_AVAILABLE = "AVAILABLE"
@@ -310,6 +313,7 @@ MISSION_PAYMENTS = {
     "CHANGE_SOCIAL": (2500, 0.3),
     "DENIAL_OF_SERVICE": (4000, 0.3),
     "STOCK_FRAUD": (5000, 0.3),
+    "PAY_FINE": (0, 0),
 }
 
 # Uplink rating names
@@ -337,6 +341,7 @@ RATING_GAIN = {
     "CHANGE_SOCIAL": 5,
     "DENIAL_OF_SERVICE": 7,
     "STOCK_FRAUD": 8,
+    "PAY_FINE": 0,
 }
 
 # Tool name aliases (user-facing name → tool type)
@@ -585,6 +590,15 @@ STOCK_SENTIMENT_DECAY = 0.7      # sentiment multiplied by this each tick
 STOCK_BREACH_SENTIMENT = -3      # sentiment hit when company is breached
 STOCK_NEWS_POSITIVE_SENTIMENT = 1  # positive news sentiment boost
 STOCK_NEWS_NEGATIVE_SENTIMENT = -1  # negative news sentiment hit
+
+# --- Tutorial ---
+TUTORIAL_STEPS = 7  # total tutorial steps (0-6)
+TUTORIAL_CHECK_INTERVAL = 50  # ticks between tutorial progress checks
+
+# --- Fines ---
+FINE_PER_POINT = 500  # credits per criminal record point removed
+FINE_MIN_RECORD = 3   # minimum criminal record to generate PAY_FINE
+FINE_POINTS_REMOVED = 2  # criminal record points removed on completion
 
 
 def get_rating_name(rating):

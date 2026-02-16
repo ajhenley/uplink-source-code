@@ -31,6 +31,9 @@ class TerminalSession:
         # LAN Spoof state
         self.lan_spoofed = False
         self.lan_spoof_expires = 0
+        # High security bypass tracking
+        self.highsec_bypassed = set()
+        self.highsec_return_screen = None
 
     @property
     def is_in_lan(self):
@@ -87,6 +90,8 @@ class TerminalSession:
         self.sysadmin_timer = 0
         self.lan_spoofed = False
         self.lan_spoof_expires = 0
+        self.highsec_bypassed = set()
+        self.highsec_return_screen = None
 
     def disconnect(self):
         """Disconnect from current computer."""
@@ -99,3 +104,5 @@ class TerminalSession:
         self.sysadmin_timer = 0
         self.lan_spoofed = False
         self.lan_spoof_expires = 0
+        self.highsec_bypassed = set()
+        self.highsec_return_screen = None

@@ -172,6 +172,13 @@ def cmd_dc(args, session):
         conn.target_ip = None
         db.session.commit()
 
+    # Tutorial: step 2→3 (first disconnect after authenticating)
+    gs = db.session.get(GameSession, session.game_session_id)
+    if gs and gs.plot_data.get("tutorial_step", 0) == 2:
+        from ..game.tutorial_engine import advance_tutorial
+        advance_tutorial(gs, 3)
+        db.session.commit()
+
     session.disconnect()
     return success(f"Disconnected from {ip}.")
 
@@ -1485,4 +1492,38 @@ registry.register(
     "plot", cmd_plot,
     states=[SessionState.IN_GAME],
     description="Show Revelation plot status",
+)
+
+
+def cmd_tutorial(args, session):
+    """Show current tutorial progress."""
+    gs = db.session.get(GameSession, session.game_session_id)
+    if not gs:
+        return error("No active game session.")
+
+    from ..game.tutorial_engine import get_tutorial_status, TUTORIAL_EMAILS
+
+    step, total, completed = get_tutorial_status(gs)
+
+    lines = [header("TUTORIAL"), ""]
+
+    if completed:
+        lines.append(f"  {bright_green('Tutorial complete!')} All steps finished.")
+        lines.append(f"  {dim('You know the basics. Good luck, agent.')}")
+    else:
+        lines.append(f"  {cyan('Progress:')} Step {step + 1} of {total}")
+        lines.append("")
+        if step < len(TUTORIAL_EMAILS):
+            subject, _ = TUTORIAL_EMAILS[step]
+            lines.append(f"  {green('Current:')} {subject}")
+            lines.append(f"  {dim('Check your email for detailed instructions.')}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+registry.register(
+    "tutorial", cmd_tutorial,
+    states=[SessionState.IN_GAME],
+    description="Show tutorial progress",
 )

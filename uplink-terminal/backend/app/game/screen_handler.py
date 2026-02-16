@@ -43,6 +43,8 @@ def handle_screen_input(text, session):
         SCREEN_RANKINGS: _handle_rankings,
         SCREEN_LAN: _handle_lan,
         SCREEN_STOCKMARKET: _handle_stockmarket,
+        SCREEN_HIGHSECURITY: _handle_highsecurity,
+        SCREEN_CONSOLE: _handle_console,
     }
 
     handler = handlers.get(screen.screen_type)
@@ -102,7 +104,15 @@ def _handle_password(text, computer, screen, session):
             db.session.add(log)
             db.session.commit()
 
+        # Check if returning to a HIGHSECURITY screen
         if screen.next_screen is not None:
+            next_scr = computer.get_screen(screen.next_screen)
+            if next_scr and next_scr.screen_type == SCREEN_HIGHSECURITY:
+                hs_layers = next_scr.content.get("layers", []) if next_scr.content else []
+                for i, layer in enumerate(hs_layers):
+                    if layer.get("screen") == session.current_screen_index:
+                        session.highsec_bypassed.add(i)
+                        break
             return success("Access granted.") + "\n" + _navigate_to(session, computer, screen.next_screen)
         return success("Access granted.")
     else:
@@ -169,7 +179,15 @@ def _handle_voiceprint(text, computer, screen, session):
             db.session.add(log)
             db.session.commit()
 
+        # Check if returning to a HIGHSECURITY screen
         if screen.next_screen is not None:
+            next_scr = computer.get_screen(screen.next_screen)
+            if next_scr and next_scr.screen_type == SCREEN_HIGHSECURITY:
+                hs_layers = next_scr.content.get("layers", []) if next_scr.content else []
+                for i, layer in enumerate(hs_layers):
+                    if layer.get("screen") == session.current_screen_index:
+                        session.highsec_bypassed.add(i)
+                        break
             return success("Voice authentication accepted.") + "\n" + _navigate_to(session, computer, screen.next_screen)
         return success("Voice authentication accepted.")
 
@@ -505,6 +523,10 @@ def _handle_shop(text, computer, screen, session):
             existing.version = ver
             existing.size = size
             existing.cost = cost
+            # Tutorial: step 3→4 (first software purchase)
+            if gs.plot_data.get("tutorial_step", 0) == 3:
+                from .tutorial_engine import advance_tutorial
+                advance_tutorial(gs, 4)
             db.session.commit()
 
             return success(
@@ -536,6 +558,10 @@ def _handle_shop(text, computer, screen, session):
             cost=cost,
         )
         db.session.add(sw)
+        # Tutorial: step 3→4 (first software purchase)
+        if gs.plot_data.get("tutorial_step", 0) == 3:
+            from .tutorial_engine import advance_tutorial
+            advance_tutorial(gs, 4)
         db.session.commit()
 
         return success(f"Purchased {name} v{ver} for {cost} credits. Balance: {gs.balance}c.")
@@ -847,6 +873,145 @@ def _handle_stockmarket(text, computer, screen, session):
 
         # Re-render the screen after trade
         return result + "\n" + render_screen(computer, screen, session)
+
+    return None
+
+
+def _handle_highsecurity(text, computer, screen, session):
+    """HIGHSECURITY: multi-layer auth. Type # to attempt, 'proceed' when all bypassed."""
+    cmd = text.strip().lower()
+    layers = screen.content.get("layers", []) if screen.content else []
+
+    if cmd == "proceed":
+        if all(i in session.highsec_bypassed for i in range(len(layers))):
+            session.authenticated_on_computer = True
+            gs = db.session.get(GameSession, session.game_session_id)
+            if gs:
+                log = AccessLog(
+                    computer_id=computer.id,
+                    game_tick=gs.game_time_ticks,
+                    from_ip=gs.gateway_ip or "unknown",
+                    from_name=session.username or "unknown",
+                    action="High security authenticated",
+                )
+                db.session.add(log)
+                db.session.commit()
+            if screen.next_screen is not None:
+                return success("All security systems bypassed.") + "\n" + _navigate_to(session, computer, screen.next_screen)
+            return success("All security systems bypassed.")
+        return error("Not all security systems have been bypassed.")
+
+    try:
+        choice = int(cmd)
+    except ValueError:
+        return None
+
+    if choice < 1 or choice > len(layers):
+        return error(f"Invalid system. Range: 1-{len(layers)}.")
+
+    idx = choice - 1
+    if idx in session.highsec_bypassed:
+        return info("Already bypassed.")
+
+    layer = layers[idx]
+    target_screen = layer.get("screen")
+    if target_screen is not None:
+        session.highsec_return_screen = session.current_screen_index
+        return _navigate_to(session, computer, target_screen)
+
+    return error("Security system not configured.")
+
+
+def _handle_console(text, computer, screen, session):
+    """CONSOLE: remote command shell. ls, cat, rm, logs, shutdown, exit."""
+    parts = text.strip().split(None, 1)
+    cmd = parts[0].lower() if parts else ""
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    gsid = session.game_session_id
+    gs = db.session.get(GameSession, gsid) if gsid else None
+
+    if cmd in ("exit", "back"):
+        for s in computer.screens:
+            if s.screen_type == SCREEN_MENU:
+                return _navigate_to(session, computer, s.screen_index)
+        return _navigate_to(session, computer, 0)
+
+    if cmd in ("ls", "dir"):
+        files = DataFile.query.filter_by(computer_id=computer.id).all()
+        if not files:
+            return info("No files on this system.")
+        lines = [f"  {cyan('Files on')} {green(computer.name)}:", ""]
+        for f in files:
+            enc = yellow(" [encrypted]") if f.encrypted else ""
+            lines.append(f"  {green(f.filename):<32} {dim(f'{f.size} GQ')}{enc}")
+        lines.append("")
+        lines.append(dim(f"  {len(files)} file(s)"))
+        return "\n".join(lines)
+
+    if cmd in ("cat", "view"):
+        if not arg:
+            return error("Usage: cat <filename>")
+        f = DataFile.query.filter_by(computer_id=computer.id, filename=arg).first()
+        if not f:
+            return error(f"File not found: {arg}")
+        if f.encrypted:
+            return error(f"{arg}: encrypted — use decrypter tool first.")
+        lines = [f"  {cyan('=== ' + f.filename + ' ===')}"]
+        if f.content:
+            for key, val in f.content.items():
+                lines.append(f"  {green(key)}: {dim(str(val))}")
+        else:
+            lines.append(f"  {dim('(empty file)')}")
+        return "\n".join(lines)
+
+    if cmd in ("rm", "delete"):
+        if not arg:
+            return error("Usage: rm <filename>")
+        f = DataFile.query.filter_by(computer_id=computer.id, filename=arg).first()
+        if not f:
+            return error(f"File not found: {arg}")
+        if gs:
+            log = AccessLog(
+                computer_id=computer.id,
+                game_tick=gs.game_time_ticks,
+                from_ip=gs.gateway_ip or "unknown",
+                from_name=session.username or "unknown",
+                action=f"Deleted {arg}",
+                suspicious=True,
+            )
+            db.session.add(log)
+        db.session.delete(f)
+        db.session.commit()
+        return success(f"Deleted: {arg}")
+
+    if cmd == "logs":
+        logs = AccessLog.query.filter_by(computer_id=computer.id).order_by(AccessLog.id.desc()).limit(20).all()
+        if not logs:
+            return info("No access logs.")
+        lines = [f"  {cyan('Access Logs')} ({len(logs)} entries):", ""]
+        for log in logs:
+            tick_str = dim(f"[tick {log.game_tick}]")
+            lines.append(f"  {tick_str} {green(log.from_ip)} — {dim(log.action)}")
+        return "\n".join(lines)
+
+    if cmd == "shutdown":
+        core = DataFile.query.filter_by(computer_id=computer.id, filename="system_core.sys").first()
+        if not core:
+            return error("System core not found — already offline or not available.")
+        if gs:
+            log = AccessLog(
+                computer_id=computer.id,
+                game_tick=gs.game_time_ticks,
+                from_ip=gs.gateway_ip or "unknown",
+                from_name=session.username or "unknown",
+                action="Executed system shutdown",
+                suspicious=True,
+            )
+            db.session.add(log)
+        db.session.delete(core)
+        db.session.commit()
+        return warning("SYSTEM SHUTDOWN INITIATED — system_core.sys deleted.\nSystem is now offline.")
 
     return None
 

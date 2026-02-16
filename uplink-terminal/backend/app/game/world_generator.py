@@ -255,9 +255,68 @@ def generate_world(game_session_id):
     arunmor_voice_admin = voice_admins[2]
 
     # --- Government Systems ---
-    _create_gov_system(gsid, IP_CRIMINAL_DB, "Global Criminal Database",
-                       "Government", TRACE_FAST, ACTION_DISCONNECT_FINE_ARREST,
-                       voice_auth=True, voice_admin=criminal_voice_admin)
+    # Criminal DB — High Security (PASSWORD + VOICEPRINT via HIGHSECURITY screen)
+    _add_location(gsid, IP_CRIMINAL_DB)
+    crim_comp = Computer(
+        game_session_id=gsid,
+        name="Global Criminal Database",
+        company_name="Government",
+        ip=IP_CRIMINAL_DB,
+        computer_type=COMP_MAINFRAME,
+        trace_speed=TRACE_FAST,
+        trace_action=ACTION_DISCONNECT_FINE_ARREST,
+        is_externally_open=True,
+        admin_password=random.choice(PASSWORD_POOL),
+    )
+    db.session.add(crim_comp)
+    db.session.flush()
+
+    # Screen chain: 0=HIGHSECURITY(→3), 1=PASSWORD(→0), 2=VOICEPRINT(→0), 3=MENU, 4=FILESERVER, 5=LOGSCREEN
+    _add_screen(crim_comp.id, 0, SCREEN_HIGHSECURITY,
+                title="Global Criminal Database",
+                subtitle="High Security Access",
+                content={"layers": [
+                    {"label": "Password Authentication", "type": "PASSWORD", "screen": 1},
+                    {"label": "Voice Verification", "type": "VOICEPRINT", "screen": 2},
+                ]},
+                next_screen=3)
+    _add_screen(crim_comp.id, 1, SCREEN_PASSWORD,
+                title="Global Criminal Database",
+                subtitle="Password Authentication",
+                password=crim_comp.admin_password,
+                next_screen=0)
+    _add_screen(crim_comp.id, 2, SCREEN_VOICEPRINT,
+                title="Global Criminal Database",
+                subtitle="Voice Authentication",
+                content={"voiceprint_target": criminal_voice_admin},
+                next_screen=0)
+    _add_screen(crim_comp.id, 3, SCREEN_MENU,
+                title="Global Criminal Database",
+                subtitle="Main Menu",
+                content={"options": [
+                    {"label": "Records", "screen": 4},
+                    {"label": "Log Screen", "screen": 5},
+                ]})
+    _add_screen(crim_comp.id, 4, SCREEN_FILESERVER,
+                title="Global Criminal Database",
+                subtitle="Records")
+    _add_screen(crim_comp.id, 5, SCREEN_LOGSCREEN,
+                title="Global Criminal Database",
+                subtitle="Access Logs")
+
+    db.session.add(SecuritySystem(computer_id=crim_comp.id, security_type=SEC_MONITOR, level=3))
+    db.session.add(SecuritySystem(computer_id=crim_comp.id, security_type=SEC_PROXY, level=2))
+    db.session.add(SecuritySystem(computer_id=crim_comp.id, security_type=SEC_FIREWALL, level=2))
+
+    for i in range(random.randint(3, 8)):
+        db.session.add(DataFile(
+            computer_id=crim_comp.id,
+            filename=f"record_{random.randint(1000, 9999)}.dat",
+            size=random.randint(1, 5),
+            file_type="DATA",
+            encrypted=random.random() < 0.4,
+        ))
+
     _create_gov_system(gsid, IP_SOCIAL_SECURITY, "Social Security Database",
                        "Government", TRACE_MEDIUM, ACTION_DISCONNECT_FINE)
     _create_gov_system(gsid, IP_ACADEMIC_DB, "International Academic Database",
@@ -650,6 +709,22 @@ def generate_world(game_session_id):
         game_tick_sent=0,
     ))
 
+    # --- Tutorial: send first step email + init tutorial state ---
+    from .tutorial_engine import TUTORIAL_EMAILS
+    plot_data = gs.plot_data
+    plot_data["tutorial_step"] = 0
+    gs.plot_data = plot_data
+
+    tut_subject, tut_body = TUTORIAL_EMAILS[0]
+    db.session.add(Email(
+        game_session_id=gsid,
+        subject=tut_subject,
+        body=tut_body,
+        from_addr="training@intl.uplink.co.uk",
+        to_addr="agent@uplink.co.uk",
+        game_tick_sent=0,
+    ))
+
     db.session.commit()
 
     # --- Initial Missions ---
@@ -800,8 +875,12 @@ def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMER
         {"label": "File Server", "screen": 2},
         {"label": "System Logs", "screen": 3},
     ]
+    next_screen_idx = 4
     if has_lan:
-        menu_options.append({"label": "Local Area Network", "screen": 4})
+        menu_options.append({"label": "Local Area Network", "screen": next_screen_idx})
+        next_screen_idx += 1
+    if size >= 8:
+        menu_options.append({"label": "System Console", "screen": next_screen_idx})
 
     _add_screen(ism.id, 1, SCREEN_MENU,
                 title=f"{company_name} ISM",
@@ -814,11 +893,18 @@ def _create_company_computers(gsid, company_name, size, company_type=TYPE_COMMER
                 title=f"{company_name} ISM",
                 subtitle="Access Logs")
 
+    lan_screen_idx = 4
     if has_lan:
-        _add_screen(ism.id, 4, SCREEN_LAN,
+        _add_screen(ism.id, lan_screen_idx, SCREEN_LAN,
                     title=f"{company_name} ISM",
                     subtitle="Local Area Network")
         _create_lan(ism.id, company_name, size)
+        lan_screen_idx += 1
+
+    if size >= 8:
+        _add_screen(ism.id, lan_screen_idx, SCREEN_CONSOLE,
+                    title=f"{company_name} ISM",
+                    subtitle="System Console")
 
     # Security based on company size
     if size > 1:

@@ -95,6 +95,11 @@ def tick():
         if gs.game_time_ticks % 500 < gs.speed_multiplier:
             _regenerate_system_cores(gs)
 
+        # --- Tutorial progress check ---
+        from .constants import TUTORIAL_CHECK_INTERVAL
+        if gs.game_time_ticks % TUTORIAL_CHECK_INTERVAL < gs.speed_multiplier:
+            _check_tutorial(gs, ts)
+
         # --- SysAdmin tick (LAN) ---
         if ts.is_in_lan and ts.sysadmin_state > 0:
             from .constants import SYSADMIN_TICK_INTERVAL
@@ -1013,3 +1018,21 @@ def _regenerate_system_cores(gs):
                 size=1,
                 file_type="SYSTEM",
             ))
+
+
+def _check_tutorial(gs, ts):
+    """Check and advance tutorial based on player actions."""
+    from .tutorial_engine import advance_tutorial
+
+    step = gs.plot_data.get("tutorial_step", 0)
+
+    # Step 0→1: Player has connected to any system at least once
+    if step == 0 and ts.is_connected:
+        advance_tutorial(gs, 1)
+
+    # Step 1→2: Player has authenticated on any system
+    if step == 1 and ts.authenticated_on_computer:
+        advance_tutorial(gs, 2)
+
+    # Steps 3-6 are triggered from specific command handlers
+    # (disconnect, buy software, accept mission, complete mission)

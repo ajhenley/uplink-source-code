@@ -26,6 +26,8 @@ def render_screen(computer, screen, session=None):
         SCREEN_RANKINGS: _render_rankings,
         SCREEN_LAN: _render_lan,
         SCREEN_STOCKMARKET: _render_stockmarket,
+        SCREEN_HIGHSECURITY: _render_highsecurity,
+        SCREEN_CONSOLE: _render_console,
     }
     renderer = renderers.get(screen.screen_type, _render_unknown)
     return renderer(computer, screen, session)
@@ -712,6 +714,47 @@ def _render_stockmarket(computer, screen, session):
     lines.append("")
     lines.append(dim("  'buy <#> <shares>' to buy, 'sell <#> <shares>' to sell"))
     lines.append(dim("  'back' to return, 'dc' to disconnect"))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_highsecurity(computer, screen, session):
+    """Render HIGHSECURITY screen showing security layers and bypass status."""
+    lines = _screen_header(screen.title, screen.subtitle)
+    layers = screen.content.get("layers", []) if screen.content else []
+    bypassed = session.highsec_bypassed if session else set()
+
+    lines.append(f"  {cyan('Security Systems:')}")
+    lines.append("")
+
+    all_bypassed = True
+    for i, layer in enumerate(layers):
+        label = layer.get("label", f"System {i+1}")
+        if i in bypassed:
+            status = bright_green("[ACCESS GRANTED]")
+        else:
+            status = yellow("[ACCESS DENIED]")
+            all_bypassed = False
+        lines.append(f"  {bright_green(str(i+1) + '.')} {green(label):<32} {status}")
+
+    lines.append("")
+    if all_bypassed and layers:
+        proceed_msg = 'All systems bypassed. Type "proceed" to continue.'
+        lines.append(f"  {bright_green(proceed_msg)}")
+    else:
+        lines.append(dim("  All systems must be bypassed to proceed."))
+        lines.append(dim("  Type a number to attempt bypass. 'dc' to disconnect."))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _render_console(computer, screen, session):
+    """Render CONSOLE screen — remote command shell."""
+    lines = _screen_header(screen.title, screen.subtitle)
+    lines.append(f"  {green('Remote Console Active')}")
+    lines.append(f"  {dim('System: ' + computer.name)}")
+    lines.append("")
+    lines.append(dim("  Commands: ls, cat <file>, rm <file>, logs, shutdown, exit"))
     lines.append("")
     return "\n".join(lines)
 

@@ -123,6 +123,10 @@ def generate_missions(game_session_id, count=None):
         if market:
             mission_types.append(MISSION_STOCK_FRAUD)
 
+    # Pay fine missions (generated when criminal record is high)
+    if gs.criminal_record >= FINE_MIN_RECORD:
+        mission_types.append(MISSION_PAY_FINE)
+
     # LAN file missions (need ISMs with LAN file/mainframe nodes containing files)
     viable_lan_targets = []
     if gs.uplink_rating >= 8:
@@ -172,6 +176,8 @@ def generate_missions(game_session_id, count=None):
             continue
         if mtype == MISSION_STOCK_FRAUD and not gs.plot_data.get("stock_market"):
             continue
+        if mtype == MISSION_PAY_FINE and gs.criminal_record < FINE_MIN_RECORD:
+            continue
 
         if mtype == MISSION_LAN_DESTROY:
             mission = _generate_lan_destroy_mission(gs, viable_lan_targets)
@@ -195,6 +201,8 @@ def generate_missions(game_session_id, count=None):
             mission = _generate_denial_of_service_mission(gs, isms_with_core)
         elif mtype == MISSION_STOCK_FRAUD:
             mission = _generate_stock_fraud_mission(gs)
+        elif mtype == MISSION_PAY_FINE:
+            mission = _generate_pay_fine_mission(gs)
         else:
             mission = _generate_file_mission(gs, mtype, viable_targets)
 
@@ -764,6 +772,61 @@ def _generate_stock_fraud_mission(gs):
     )
 
 
+def _generate_pay_fine_mission(gs):
+    """Generate a PAY_FINE mission to reduce criminal record."""
+    fine_amount = gs.criminal_record * FINE_PER_POINT
+    description = f"Pay outstanding fine ({fine_amount}c)"
+    details = f"Pay a {fine_amount}c fine to reduce your criminal record."
+    full_details = (
+        f"The Global Criminal Justice Department has issued a fine\n"
+        f"against you for illegal computer activity.\n\n"
+        f"Fine Amount: {fine_amount}c\n"
+        f"Criminal Record Points: {gs.criminal_record}\n"
+        f"Points Removed on Payment: {FINE_POINTS_REMOVED}\n\n"
+        f"Reply to this email to pay the fine. The amount will be\n"
+        f"deducted from your account balance automatically."
+    )
+
+    return Mission(
+        game_session_id=gs.id,
+        mission_type=MISSION_PAY_FINE,
+        employer="Global Criminal Justice Dept",
+        contact="fines@gcjd.gov",
+        description=description,
+        details=details,
+        full_details=full_details,
+        target_ip="",
+        target_filename=None,
+        target_data={
+            "fine_amount": fine_amount,
+            "points_removed": FINE_POINTS_REMOVED,
+        },
+        payment=0,
+        difficulty=0,
+        min_rating=0,
+        status=MISSION_AVAILABLE,
+        created_at_tick=gs.game_time_ticks,
+    )
+
+
+def _check_pay_fine(gs, mission):
+    """Check if player can pay the fine. Deducts credits and reduces record."""
+    data = mission.target_data
+    fine_amount = data.get("fine_amount", 0)
+    points_removed = data.get("points_removed", FINE_POINTS_REMOVED)
+
+    if gs.balance < fine_amount:
+        return False, f"Insufficient funds. Need {fine_amount}c, have {gs.balance}c."
+
+    gs.balance -= fine_amount
+    old_record = gs.criminal_record
+    gs.criminal_record = max(0, gs.criminal_record - points_removed)
+
+    return True, (
+        f"Fine paid: {fine_amount}c. Criminal record: {old_record} → {gs.criminal_record}."
+    )
+
+
 def _check_denial_of_service(gs, mission):
     """Verify system_core.sys no longer exists on the target ISM."""
     target_comp = Computer.query.filter_by(
@@ -826,6 +889,11 @@ def accept_mission(game_session_id, mission_id):
     # Accept the mission
     mission.status = MISSION_ACCEPTED
     mission.accepted_at_tick = gs.game_time_ticks
+
+    # Tutorial: step 4→5 (first mission accepted)
+    if gs.plot_data.get("tutorial_step", 0) == 4:
+        from .tutorial_engine import advance_tutorial
+        advance_tutorial(gs, 5)
 
     # Send mission details email
     email = Email(
@@ -906,6 +974,8 @@ def check_mission_completion(game_session_id, mission_id):
         ok, msg = _check_denial_of_service(gs, mission)
     elif mission.mission_type == MISSION_STOCK_FRAUD:
         ok, msg = _check_stock_fraud(gs, mission)
+    elif mission.mission_type == MISSION_PAY_FINE:
+        ok, msg = _check_pay_fine(gs, mission)
     elif mission.mission_type == MISSION_PLOT_STEAL:
         ok, msg = _check_steal_file(gs, mission)
     elif mission.mission_type == MISSION_PLOT_DESTROY:
@@ -917,6 +987,37 @@ def check_mission_completion(game_session_id, mission_id):
 
     if not ok:
         return False, msg
+
+    # PAY_FINE: no payment, no rating gain — just the record reduction
+    if mission.mission_type == MISSION_PAY_FINE:
+        mission.status = MISSION_COMPLETED
+        mission.completed_at_tick = gs.game_time_ticks
+        # Tutorial: step 5→6 (first mission completed)
+        if gs.plot_data.get("tutorial_step", 0) == 5:
+            from .tutorial_engine import advance_tutorial
+            advance_tutorial(gs, 6)
+        data = mission.target_data
+        email = Email(
+            game_session_id=game_session_id,
+            subject="Re: Fine Payment Confirmation",
+            body=(
+                f"Fine of {data.get('fine_amount', 0)}c received.\n\n"
+                f"Your criminal record has been reduced by {data.get('points_removed', 0)} point(s).\n"
+                f"Current record: {gs.criminal_record}\n\n"
+                f"-- Global Criminal Justice Department"
+            ),
+            from_addr=mission.contact,
+            to_addr="agent@uplink.co.uk",
+            game_tick_sent=gs.game_time_ticks,
+        )
+        db.session.add(email)
+        db.session.commit()
+        return True, f"Fine paid. Criminal record reduced to {gs.criminal_record}."
+
+    # Tutorial: step 5→6 (first mission completed)
+    if gs.plot_data.get("tutorial_step", 0) == 5:
+        from .tutorial_engine import advance_tutorial
+        advance_tutorial(gs, 6)
 
     # Mission complete — pay the player
     mission.status = MISSION_COMPLETED
